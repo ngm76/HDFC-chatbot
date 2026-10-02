@@ -24,8 +24,11 @@ EDUCATIONAL_HOST = "amfiindia.com"
 
 
 class AnswerPayload(TypedDict):
+    """PRD §7 template: body (text), one source (url + readable label), and the
+    ingest date of the cited page (ISO; the UI shows it as DD Mon YYYY)."""
     text: str
     source_url: str | None
+    source_label: str | None  # e.g. "HDFC Small Cap Fund – scheme page"
     last_updated_from_sources: str | None
     refusal: bool
     refusal_reason: str | None
@@ -42,10 +45,21 @@ def make_payload(
     return AnswerPayload(
         text=text,
         source_url=source["url"] if source else None,
+        source_label=(source or {}).get("label") or None,
         last_updated_from_sources=(source or {}).get("fetched_at") or None,
         refusal=refusal,
         refusal_reason=refusal_reason,
     )
+
+
+def source_row(url: str) -> dict[str, str] | None:
+    """The sources.csv row for a URL (label, freshness limit, fetched_at, ...)."""
+    return next((r for r in _source_rows() if r["url"] == url), None)
+
+
+def source_label(url: str) -> str | None:
+    row = source_row(url)
+    return row.get("label") or None if row else None
 
 
 LINK_ROLES = ("ingest", "reference", "help")

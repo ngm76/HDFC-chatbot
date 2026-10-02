@@ -1,4 +1,4 @@
-"""Phase 8: grounded answer generation (architecture §7).
+"""Grounded answer generation (Phases 8 and 17, architecture §7).
 
 Generators, picked in this order unless GENERATOR forces one:
   1. Claude via the Anthropic SDK, when ANTHROPIC_API_KEY is set (paid API).
@@ -13,9 +13,13 @@ Environment (read from .env too):
   GROQ_MODEL         default openai/gpt-oss-120b
   GENERATOR          claude | groq | extractive (optional)
 
-The rules in the prompt are also enforced in code: at most three sentences, and
-every number in the answer must appear in the excerpts (no invented fees). A
-failed check raises GenerationError so the caller shows a safe error instead.
+The rules in the prompt are also enforced in code:
+- every number in the answer must appear in the excerpts (UngroundedNumberError);
+- the FR-4 validator (src/rag/validate.py): no return figures, recommendation or
+  judgement words, first-person opinions, more than three sentences or links
+  outside the source list. A rejected answer is regenerated once with the reason;
+  a second rejection raises ValidationFailed, and the pipeline falls back to the
+  FR-1 "couldn't find this in the official sources" reply.
 """
 
 from __future__ import annotations
@@ -32,7 +36,9 @@ import anthropic
 import httpx
 from dotenv import load_dotenv
 
+from src.guards.common import source_label
 from src.guards.performance import is_performance
+from src.rag import validate
 from src.rag.retrieve import RetrievedChunk, intent_fields
 
 load_dotenv()
@@ -59,18 +65,27 @@ JSON_MODE_INSTRUCTION = (
 
 SYSTEM_PROMPT = """\
 You answer questions about five HDFC Mutual Fund schemes for a facts-only FAQ \
-assistant. The user message contains numbered excerpts from the public Groww \
-scheme pages of these funds, followed by the question.
+assistant. The user message contains numbered excerpts from official documents \
+(HDFC Mutual Fund scheme pages, Key Information Memorandums, the monthly \
+factsheet and TER disclosure, and SEBI / AMFI investor pages), followed by the \
+question.
 
 Rules:
 - Use only facts stated in the excerpts, never outside knowledge.
-- Answer in at most three sentences of plain text, with no lists or markdown. \
-Write complete sentences that name the fund, e.g. "The expense ratio of HDFC \
-Small Cap Fund Direct Growth is 0.78%."
+- Answer in at most three sentences of plain text, with no lists, links or markdown.
+- The first sentence states the fact with the full scheme name and plan, e.g. \
+"HDFC Small Cap Fund (Direct Plan - Growth) has a total expense ratio of 0.79% as \
+on 30 Sep 2026." Answers are for the Direct Plan - Growth unless the excerpt is \
+about all plans.
+- Neutral, plain English for a first-time investor; you may define a term in a few \
+words ("exit load, a fee for redeeming early"). State numbers with their units and \
+conditions ("1% if redeemed within 1 year").
+- Never use judgement or recommendation words (best, better, good, safe, ideal, \
+suitable, recommended, guaranteed, should) and never give a first-person opinion.
 - Copy numbers (percentages, amounts, periods, dates) exactly as written; do not \
 calculate, round, combine or compare them.
-- Never give investment advice: no buy/sell/hold views, recommendations, \
-suitability opinions, rankings, or return calculations or comparisons.
+- Never give investment advice: no buy/sell/hold views, suitability opinions, \
+rankings, or return figures, calculations or comparisons.
 - Excerpts may describe other funds or general regulations. Only use an excerpt \
 about the fund the question asks about. If the only figure available is a \
 general regulatory limit rather than the fund's own figure, say that it is a \
@@ -79,17 +94,18 @@ regulatory limit, not the fund's actual figure.
 an excerpt gives an "as on" date for the figure, state that date in the answer.
 - If one excerpt shows a field as "NA" but another gives its actual value, use the value.
 - If the field has several values in the excerpt you use (for example several fund \
-managers, or several plans' NAVs when no plan is named), list all of them with \
-their roles or labels, even if the question uses the singular.
-- For allocation, mix, ratio or "holdings analysis" questions, quote the totals in \
-the "Holdings analysis" excerpts and say they are calculated from the holdings \
-listed on Groww. Lead with the asset-class mix (equity / debt / cash / other); \
-add the top sectors only if asked or if space allows. Never add up or calculate \
-percentages yourself.
+managers), list all of them with their roles or labels, even if the question uses \
+the singular.
+- For allocation, mix, ratio or "holdings analysis" questions, quote the asset-class \
+mix from the "Holdings analysis summary" excerpt (it comes from the factsheet's \
+portfolio subtotals); add the top sectors only if asked, and say the sector split is \
+calculated from the listed holdings. Never add up or calculate percentages yourself.
 - Lists such as holdings are split across several excerpts, and you may see only \
 part of one (e.g. the top 10 of 87 holdings). Never say an item is absent or not \
 held unless it is absent from a complete list; if the item is not in the excerpts, \
 set found to false.
+- For "how to" questions (statements, investing, redeeming), give the steps from the \
+excerpt in at most three sentences.
 - If the excerpts do not contain the answer, set found to false and leave answer empty.
 
 Set excerpt to the number of the single excerpt that best supports your answer."""
@@ -110,6 +126,10 @@ EXTRACTIVE_LABEL = "[Extractive fallback: quoted from the source, no LLM configu
 
 class GenerationError(Exception):
     """Generator failed or produced an answer that broke a grounding rule."""
+
+
+class ValidationFailed(GenerationError):
+    """The answer broke an FR-4 rule twice (after one regeneration)."""
 
 
 class UngroundedNumberError(GenerationError):
@@ -157,11 +177,31 @@ def generate(
         raise ValueError("generate() needs at least one chunk")
     user = _user_message(query, chunks, conversation, about_fund)
     mode = generator_mode()
-    if mode == "claude":
-        return _generate_claude(user, chunks)
-    if mode == "groq":
-        return _generate_groq(user, chunks)
-    return _generate_extractive(query, chunks)
+    if mode == "extractive":
+        generation = _generate_extractive(query, chunks)
+        if generation.found:
+            try:
+                validate.check(generation.text, verbatim=True)
+            except validate.ValidationError as exc:
+                raise ValidationFailed(str(exc)) from exc
+        return generation
+    model = _generate_claude if mode == "claude" else _generate_groq
+    generation = model(user, chunks)
+    try:
+        if generation.found:
+            validate.check(generation.text)
+        return generation
+    except validate.ValidationError as first:
+        logger.info("answer rejected by validator (%s); regenerating once", first)
+        retry = (f"{user}\n\nYour previous answer was rejected because it {first}. "
+                 "Answer again following every rule.")
+        generation = model(retry, chunks)
+        try:
+            if generation.found:
+                validate.check(generation.text)
+            return generation
+        except validate.ValidationError as second:
+            raise ValidationFailed(str(second)) from second
 
 
 # --- Claude -------------------------------------------------------------------
@@ -200,7 +240,8 @@ def _user_message(
 
 def _context(chunks: list[RetrievedChunk]) -> str:
     return "\n\n".join(
-        f"[{i}] Source: {c['url']}\nSection: {c['section_title'] or '(none)'}\n{c['text']}"
+        f"[{i}] Source: {source_label(c['url']) or c['url']}\n"
+        f"Section: {c['section_title'] or '(none)'}\n{c['text']}"
         for i, c in enumerate(chunks, 1)
     )
 
@@ -249,7 +290,7 @@ def _finish(raw: str, chunks: list[RetrievedChunk], mode: str) -> Generation:
     index = excerpt - 1
     if not 0 <= index < len(chunks):
         index = 0
-    text = _cap_sentences(answer.strip())
+    text = answer.strip()  # the validator rejects more than three sentences (FR-4)
     _check_numbers(text, chunks)
     return Generation(True, text, index, mode)
 
@@ -366,7 +407,7 @@ def _generate_extractive(query: str, chunks: list[RetrievedChunk]) -> Generation
     top = chunks[0]
     if fields and top["field"] in fields and not is_performance(top["text"]):
         quote = " ".join(_TITLE_PREFIX_RE.sub("", top["text"]).split())[:400]
-        return Generation(True, f"{EXTRACTIVE_LABEL} {quote}", 0, "extractive")
+        return Generation(True, f"{EXTRACTIVE_LABEL} {_cap_sentences(quote)}", 0, "extractive")
     candidates = [
         (i, *_best_sentences(query, c["text"])) for i, c in enumerate(chunks[:EXTRACTIVE_CANDIDATES])
     ]
@@ -374,18 +415,15 @@ def _generate_extractive(query: str, chunks: list[RetrievedChunk]) -> Generation
     if not score:
         return Generation(False, "", 0, "extractive")
     quote = " ".join(" ".join(s.split())[:300] for s in sentences)
-    return Generation(True, f"{EXTRACTIVE_LABEL} {quote}", index, "extractive")
+    return Generation(True, f"{EXTRACTIVE_LABEL} {_cap_sentences(quote)}", index, "extractive")
 
 
 # --- Grounding checks ---------------------------------------------------------
 
-_ABBREVIATIONS = re.compile(r"\b(Rs|No|Nos|e\.g|i\.e|p\.a|viz|approx|Ltd|Co|vs)\.", re.I)
-
-
 def _cap_sentences(text: str) -> str:
-    protected = _ABBREVIATIONS.sub(lambda m: m.group(0)[:-1] + "\x00", text)
-    sentences = re.split(r"(?<=[.!?])\s+", protected)
-    return " ".join(sentences[:MAX_SENTENCES]).replace("\x00", ".")
+    """First three sentences (same splitter as the validator). Used only for verbatim
+    quotes in the offline fallback; model answers are validated, not trimmed."""
+    return " ".join(validate.sentences(text)[:MAX_SENTENCES])
 
 
 def _normalize_number(raw: str) -> str:

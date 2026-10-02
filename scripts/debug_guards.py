@@ -157,7 +157,8 @@ def main() -> None:
         got = outcome(d)
         visible = " ".join(str(x) for x in (d.query, d.pii_warning, *(d.payload or {}).values()))
         leaked = [p for p in raw_pii if p in visible]
-        no_link = not d.allowed and not (d.payload or {}).get("source_url")
+        no_link = not d.allowed and not ((d.payload or {}).get("source_url")
+                                         and (d.payload or {}).get("source_label"))
         ok = got == expected and d.pii_types == expected_pii and not leaked and not no_link
         failures += not ok
         print(f"{'PASS' if ok else 'FAIL'}  {got:<12} {d.query}")

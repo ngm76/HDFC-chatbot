@@ -1,8 +1,9 @@
 """Definite answers when a fund does not hold a named company.
 
 "Does HDFC Small Cap Fund hold Infosys?" - if the name appears in none of the
-fund's holdings cards (which together cover the fund's full list on Groww), the
-answer is stated directly: "Infosys is not among the 87 holdings listed for …".
+fund's holdings cards (which together cover the fund's full list in the monthly
+factsheet), the answer is stated directly: "Infosys is not among the 85 holdings
+listed for … in the factsheet as on 31 Aug 2026".
 This is an exact, deterministic check, so no LLM is involved. When the name IS
 found, the normal RAG path answers with the matching card.
 """
@@ -11,8 +12,10 @@ from __future__ import annotations
 
 import re
 
-from src.guards.common import AnswerPayload
+from src.guards.common import AnswerPayload, source_label
+from src.ingest.official import human_date
 from src.rag.retrieve import HOLDINGS_FIELDS, _collection
+from src.schemes import short_name
 
 # Pull the company name out of common "is X held" phrasings.
 _NAME_PATTERNS = [
@@ -59,9 +62,12 @@ def absence_answer(query: str, scheme: str) -> AnswerPayload | None:
     count = next((m.group(1) for d in cards["documents"] if (m := _COUNT_RE.search(d))), None)
     meta = cards["metadatas"][0]
     listed = f"the {count} holdings" if count else "the holdings"
+    as_on = f" as on {human_date(meta['doc_date'])}" if meta.get("doc_date") else ""
     return AnswerPayload(
-        text=f"{name} is not among {listed} listed for {scheme} on its Groww page.",
+        text=(f"{name} is not among {listed} listed for {short_name(scheme)} (Direct Plan - "
+              f"Growth) in the HDFC Mutual Fund monthly factsheet{as_on}."),
         source_url=meta["url"],
+        source_label=source_label(meta["url"]),
         last_updated_from_sources=meta.get("fetched_at") or None,
         refusal=False,
         refusal_reason=None,

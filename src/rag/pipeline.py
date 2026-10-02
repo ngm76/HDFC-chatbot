@@ -21,7 +21,13 @@ from src.guards.pii import redact
 from src.guards.pipeline import pii_block, run_guards
 from src.rag import context
 from src.rag.assemble import assemble, generation_error, not_found, ungrounded
-from src.rag.generate import GenerationError, UngroundedNumberError, generate, generator_label
+from src.rag.generate import (
+    GenerationError,
+    UngroundedNumberError,
+    ValidationFailed,
+    generate,
+    generator_label,
+)
 from src.rag.holdings import absence_answer
 from src.rag.retrieve import RetrievedChunk, intent_fields, one_page_covers, retrieve
 from src.schemes import detect_schemes, former_name_used, fuzzy_schemes, short_name
@@ -124,6 +130,10 @@ def ask(
     except UngroundedNumberError as exc:
         logger.warning("answer rejected: %s", exc)
         return Answer(ungrounded(resolved.schemes), decision.pii_warning, query,
+                      tuple(chunks), None, label, note)
+    except ValidationFailed as exc:  # FR-4: rejected twice -> FR-1 fallback
+        logger.warning("answer rejected by validator twice: %s", exc)
+        return Answer(not_found(resolved.schemes), decision.pii_warning, query,
                       tuple(chunks), None, label, note)
     except GenerationError as exc:
         logger.warning("generation failed: %s", exc)

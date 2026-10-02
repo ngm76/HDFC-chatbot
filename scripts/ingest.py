@@ -29,6 +29,7 @@ from src.ingest.chunk import chunk_documents  # noqa: E402
 from src.ingest.embed import embed_texts  # noqa: E402
 from src.ingest.load import DEFAULT_SOURCES, Document, load_corpus  # noqa: E402
 from src.ingest.store import CHROMA_DIR, COLLECTION_NAME, rebuild_collection  # noqa: E402
+from src.rag.validate import RETURN_FIGURE_RE  # noqa: E402
 from src.schemes import SCHEMES, SHARED_SCHEME  # noqa: E402
 
 
@@ -84,14 +85,6 @@ REQUIRED_CARDS = ("expense_ratio", "exit_load", "min_sip", "riskometer", "benchm
                   "aum", "fund_managers", "holdings", "holdings_breakdown", "overview")
 REQUIRED_CARDS_ELSS = ("lock_in",)
 REQUIRED_SHARED = ("statement_steps", "riskometer_levels", "definition")
-# A returns figure in an indexed chunk (PRD: no performance claims). Matches e.g.
-# "Returns (%) 20.34", "CAGR 12.5%", "since inception 13.18%", "15% returns".
-RETURN_FIGURE_RE = re.compile(
-    r"\b(returns?|CAGR|XIRR)\b[^.\n]{0,20}?(?:\(%\))?\s*[:\-]?\s*-?\d+(?:\.\d+\s*%?|\s*%)"
-    r"|\bsince inception\b[^.\n]{0,15}?\d+(?:\.\d+)?\s*%"
-    r"|\d+(?:\.\d+)?\s*%\s*(?:p\.?a\.?\s*)?(?:returns?|CAGR)\b",
-    re.I,
-)
 
 
 def card_problems(chunks) -> list[str]:

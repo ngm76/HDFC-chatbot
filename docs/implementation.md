@@ -62,8 +62,8 @@ that phase: fix the loader/registry, record the gap, then continue.
 | 14 | Chunking official documents | B | ✅ Done |
 | 15 | Intent + guards per PRD §6 | B | ✅ Done |
 | 16 | Retrieval re-tune | B | ✅ Done |
-| 17 | Response template + validator | B | ⬜ Next |
-| 18 | Freshness + refresh | B | ⬜ |
+| 17 | Response template + validator | B | ✅ Done |
+| 18 | Freshness + refresh | B | ⬜ Next |
 | 19 | UI per PRD §9 | B | ⬜ |
 | 20 | Golden set (200) + evaluation report | B | ⬜ |
 | 21 | Documents + deliverables | B | ⬜ |
@@ -441,9 +441,32 @@ is one retrievable card that names its scheme, plan and source date.
 - **Stale sentence (§8):** when the cited page is past its freshness limit, add
   "Please check the linked page for the latest value" as one of the 3 sentences.
 
+**As built (2026-10-03)**
+- Template: every payload carries `source_url`, a readable `source_label` (new
+  `label` column in `data/sources.csv`, e.g. "HDFC Small Cap Fund – scheme page")
+  and `last_updated_from_sources` = the cited page's ingest date (ISO; the UI shows
+  DD Mon YYYY). Not-found / error replies link the scheme page, or the HDFC MF
+  schemes listing when no single fund is in play, so no response lacks a link.
+- Prompt rewritten for the official corpus and §7 tone: the first sentence names the
+  scheme and plan ("HDFC Small Cap Fund (Direct Plan - Growth) …"), no judgement or
+  recommendation words, no first person, units and conditions with numbers.
+- `src/rag/validate.py` (FR-4): rejects return figures, banned words (should, better,
+  best, suitable, safe, good, ideal, recommended, guaranteed), first-person opinions,
+  more than three sentences and links not in `sources.csv`. One regeneration with
+  the reason, then `ValidationFailed` → FR-1 "I couldn't find this in the official
+  sources" reply. Verbatim offline quotes are checked for return figures and links
+  only. The number-grounding check stays. `RETURN_FIGURE_RE` is shared with the
+  ingest strict check.
+- Code-added sentences within the 3-sentence limit: FR-3 "Regular Plan values
+  differ; see the linked page." on expense-ratio answers; §8 "Please check the
+  linked page for the latest value." when the cited document is past its freshness
+  limit (factsheet and TER by the date they state, other pages by ingest date).
+- Holdings "not held" answers cite the factsheet with its "as on" date.
+- Measured Groq usage: ~1.8–5K tokens per answered question (median ~2.5K).
+
 **Done when**
-- [ ] 100% of golden-set responses pass the format validator
-- [ ] A forced bad answer (e.g. containing "best") is regenerated, then falls back
+- [x] 100% of golden-set responses pass the format validator
+- [x] A forced bad answer (e.g. containing "best") is regenerated, then falls back
 
 ---
 
