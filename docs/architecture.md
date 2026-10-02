@@ -65,14 +65,14 @@ flowchart LR
 
 | Component | Responsibility | Module | Status |
 |---|---|---|---|
-| Source registry | URLs with publisher, doc type, scheme, question types, freshness limit, role, ingest date | `data/sources.csv`, `data/schemes.md` | ✅ Groww · ⬜ official (12) |
+| Source registry | URLs with publisher, doc type, scheme, question types, freshness limit, role, ingest date | `data/sources.csv`, `data/schemes.md` | ✅ official, 24 + 2 help (12) |
 | Scheme names | Canonical names, aliases, former names, categories | `src/schemes.py` | ✅ partial · ⬜ aliases (15) |
-| Loader | Fetch HTML/PDF, extract main text, allowlist, raw cache, keep last good copy | `src/ingest/load.py` | ✅ · ⬜ last-good, allowlist (13) |
+| Loader | Fetch HTML/PDF/.xlsx, extract main text, clean HDFC scheme pages, allowlist, raw cache, keep last good copy | `src/ingest/load.py` | ✅ (13) |
 | Card builders | Parse each document type into fact cards | `src/ingest/groww.py` (Groww) · ⬜ official builder | ✅ Groww · ⬜ official (14) |
 | Generic chunker | Heading-aware recursive split for prose documents | `src/ingest/chunk.py` | ✅ |
 | Embedder | MiniLM-L6-v2 via ONNX Runtime, 384-dim, normalized | `src/ingest/embed.py` | ✅ |
 | Vector store | Persistent Chroma `hdfc_mf_faq`, cosine, idempotent rebuild | `src/ingest/store.py`, `chroma_compat.py` | ✅ |
-| Ingest CLI | load → chunk → embed → store; `--refresh`, `--strict` | `scripts/ingest.py` | ✅ · ⬜ official checks (13) |
+| Ingest CLI | load → chunk → embed → store; `--refresh`, `--strict`, `--check-only` | `scripts/ingest.py` | ✅ (13) |
 | Guards | PII, advice, performance, scope, about, clarify | `src/guards/*` | ✅ · ⬜ PRD §6 rules (15) |
 | Conversation context | Last 25 exchanges; fund and topic carry-over | `src/rag/context.py` | ✅ |
 | Retriever | Query expansion, scheme filter, field routing, holdings name lookup | `src/rag/retrieve.py` | ✅ · ⬜ re-tune (16) |
@@ -108,9 +108,9 @@ flowchart TD
 
 | Stage | Behaviour |
 |---|---|
-| Loading | Fetch only `role=ingest` rows on the allowlist. HTML: main text, chrome removed. PDF: text per page. Cache raw bytes in `data/raw/`. ⬜ On a failed fetch, use the last good cached copy and report it (PRD §8). |
+| Loading | Fetch only `role=ingest` rows on the allowlist. HTML: main text, chrome removed; HDFC scheme pages also lose returns, suitability and pitch blocks. PDF: text per page, garbled-font lines dropped. TER workbook: one line per row. A page is cached in `data/raw/` only once its text passes; a failed or unusable fetch falls back to that last good copy and is reported as `STALE` (PRD §8). |
 | Chunking | Card builders per document type (§5). The generic splitter handles prose. |
-| Strict checks | Every required page loaded; every scheme has cards for its required fields. Otherwise exit 1 before touching the index. |
+| Strict checks | Every page loaded (fresh or last good); per-document-type required text (e.g. TER, min SIP, exit load on scheme pages; ELSS lock-in; all five schemes in the factsheet and TER file); no performance text on scheme pages. ⬜ (14) card-level field checks. Otherwise exit 1 before touching the index. `--check-only` runs this without rebuilding. |
 | Embedding | MiniLM-L6-v2 (official ONNX export), batch 32, L2-normalized. |
 | Store | Drop and recreate the collection; ids = `chunk_id`; metadata as in §5. |
 
@@ -321,7 +321,7 @@ inside holdings questions are not treated as other AMCs ✅.
 |---|---|---|
 | Freshness limits | TER 7 days, factsheet 35 days, KIM/SID 180 days, others per `sources.csv` | ⬜ 18 |
 | Re-ingest | Every Render deploy (`ingest.py --refresh --strict`); daily redeploy via GitHub Actions at 21:00 IST | ✅ |
-| Failed fetch | Keep the last good copy; report in the build log | ⬜ 13/18 |
+| Failed fetch | Keep the last good copy; report in the build log | ✅ (13) |
 | Dated editions | Factsheet/KIM/SID URLs change per edition (JS hub pages can't be crawled): monthly update of `sources.csv`; `--strict` flags missing editions | ⬜ 18 |
 | Link health | Report 4xx/5xx for every source URL in the scheduled workflow (PRD §11) | ⬜ 18 |
 | UI staleness | Banner when the corpus is older than 3 days | ✅ |
@@ -443,7 +443,7 @@ All dependencies are pinned in `requirements.txt`.
 | Answer with a figure not in the sources | Rejected; honest "only figures stated in the sources" reply | ✅ |
 | Answer failing FR-4 (banned word, return figure, bad link, > 3 sentences) | Regenerate once, then the FR-1 fallback | ⬜ 17 |
 | Generator error / rate limit | Retry with backoff on 429; then a generic safe error, no partial facts | ✅ |
-| Fetch failure at ingest | Keep the last good copy (⬜ 13); `--strict` fails the build if a required page or fact is missing, and Render keeps serving the previous deploy | ✅ strict · ⬜ last good |
+| Fetch failure at ingest | Use the last good copy and report it; `--strict` fails the build if a required page or fact is missing, and Render keeps serving the previous deploy (Render's cache starts empty) | ✅ |
 | Source blocks cloud IPs (e.g. HDFC bot protection, SEBI) | Strict build fails visibly; fallback is a committed snapshot | ⬜ 18 if needed |
 | Stale page | Freshness line on every answer; stale sentence past the limit (⬜ 17); UI banner (✅) | partial |
 | Ambiguous scheme | Clarify with chips | ✅ text · ⬜ chips |

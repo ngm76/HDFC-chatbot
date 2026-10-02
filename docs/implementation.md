@@ -58,8 +58,8 @@ that phase: fix the loader/registry, record the gap, then continue.
 | A+ | Later work (Groww corpus, fact cards, holdings, context memory, UI redesign, Render deploy) | A | ✅ Built |
 | 11 | Docs baseline for the new PRD | B | ✅ Done |
 | 12 | Official source registry (~22 pages) | B | ✅ Done |
-| 13 | Loading official sources | B | ⬜ Next |
-| 14 | Chunking official documents | B | ⬜ |
+| 13 | Loading official sources | B | ✅ Done |
+| 14 | Chunking official documents | B | ⬜ Next |
 | 15 | Intent + guards per PRD §6 | B | ⬜ |
 | 16 | Retrieval re-tune | B | ⬜ |
 | 17 | Response template + validator | B | ⬜ |
@@ -249,9 +249,31 @@ data/schemes.md. Never invent a URL: list unconfirmed pages as known gaps.
 
 **Do not:** chunk or change retrieval.
 
+**As built (2026-10-02)**
+- Allowlist: `hdfcfund.com`, `sebi.gov.in`, `amfiindia.com`, `mutualfundssahihai.com`
+  (subdomains included); `groww.in` removed. Groww cleanup kept but unused.
+- HDFC scheme pages (`_clean_hdfc_scheme`): drops since-inception returns, the "NAV
+  and Historical Performance" block, "Product Suitability", "Ideal for", "Who can
+  consider / Why invest" pitch blocks, the downloads list and button text; keeps only
+  factual FAQ pairs (minimum, benchmark, exit load, lock-in, how to invest / redeem,
+  SIP and lump sum). NAV and holdings are JavaScript-only ("NA"), so they come from
+  the factsheet.
+- TER workbook: `.xls` name but `.xlsx` format, read with the standard library
+  (`_xlsx_to_text`): one line per row, cells joined by " | " (3,331 rows: every scheme
+  and day of the month, Regular and Direct).
+- PDFs: garbled lines from non-Unicode fonts (the SEBI circular's Hindi header) are dropped.
+- Last good copy: a page is cached only once its text passes the checks. A failed or
+  unusable fetch (error, block page, too short) falls back to that copy and is
+  reported as `STALE`. On Render the cache starts empty, so a failed fetch fails the
+  strict build and Render keeps serving the previous deploy.
+- `scripts/ingest.py`: per-document-type text checks (`REQUIRED_TEXT`, the ELSS
+  lock-in, all five schemes in the factsheet and TER file) and a regression check that
+  no performance text survives on scheme pages. `--check-only` runs load + checks
+  without touching the index.
+
 **Done when**
-- [ ] All `ingest` rows load, or fall back to their last good copy with a warning
-- [ ] `--strict` fails on a missing page and passes on the full corpus
+- [x] All `ingest` rows load, or fall back to their last good copy with a warning (24/24 fresh; fallback tested with a simulated outage and a block page)
+- [x] `--strict` fails on a missing page and passes on the full corpus (also fails on a page missing required facts)
 
 ---
 
@@ -271,6 +293,13 @@ is one retrievable card that names its scheme, plan and source date.
   - **statement pages:** step-by-step "how to download" cards
   - **SEBI / AMFI:** section chunks (riskometer levels, ELSS/SIP basics, education)
 - Card metadata adds `publisher`, `plan`, `doc_date` (the date the document states, if any).
+- **Performance content:** the factsheet and KIMs still contain returns tables (the
+  loader leaves PDFs whole). Only fact cards and non-performance sections may be
+  indexed from them; add a strict check that no indexed chunk carries return figures.
+- **TER file:** use only the latest date per scheme; Direct is the answer, Regular only
+  for the "values differ" note (FR-3).
+- After this phase, a full `python scripts/ingest.py --refresh --strict` rebuild
+  replaces the local Groww index; push to Render only once it passes.
 
 **Done when**
 - [ ] Each scheme has a card for each of the 7 question types it supports

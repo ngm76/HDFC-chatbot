@@ -7,6 +7,8 @@ sources.csv for every URL that loaded. Run from the project root:
     python scripts/ingest.py --refresh           # re-download every URL
     python scripts/ingest.py --refresh --strict  # deployment build: fail (exit 1) if any
                                                  # page failed or lacks core facts
+    python scripts/ingest.py --refresh --check-only  # load + strict checks only; the
+                                                     # index is not touched
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from __future__ import annotations
 import argparse
 import csv
 import logging
+import re
 import sys
 import time
 from collections import Counter
@@ -48,19 +51,49 @@ def update_fetched_at(sources_csv: Path, docs: list[Document]) -> int:
     return updated
 
 
-# Facts every scheme page must yield. If one is missing, the page probably changed
-# layout or came back partial (e.g. blocked), so a strict build refuses to publish it.
-REQUIRED_FIELDS = ("nav", "expense_ratio", "aum", "min_sip", "exit_load", "riskometer",
-                   "benchmark", "fund_managers", "holdings")
+# Text every document of a type must contain. If one is missing, the page probably
+# changed layout or came back partial (e.g. a bot-protection page), so a strict build
+# refuses to publish it. Values: label -> pattern (case-insensitive).
+REQUIRED_TEXT = {
+    "scheme_page": {"TER": r"\bTER\b", "min SIP": r"Min SIP", "exit load": r"Exit Load",
+                    "benchmark": r"Benchmark", "riskometer": r"Riskometer", "AUM": r"\bAUM\b",
+                    "fund managers": r"Fund Managers"},
+    "kim": {"exit load": r"exit load", "minimum investment": r"minimum (application|investment|amount)",
+            "riskometer": r"risk-?o-?meter", "benchmark": r"benchmark"},
+    "factsheet": {"riskometer": r"risk-?o-?meter", "expense ratio": r"expense ratio"},
+    "ter": {"total TER": r"Total TER"},
+    "statement_guide": {"statement": r"statement"},
+    "riskometer": {"risk levels": r"Very High"},
+}
+# Scheme-specific additions (the ELSS lock-in must come from HDFC's own documents).
+REQUIRED_TEXT_ELSS = {"lock-in": r"lock[- ]?in"}
+# Names each shared document must mention for all five schemes (TER file spelling for ELSS).
+REQUIRED_SCHEMES = {
+    "factsheet": ("HDFC Large Cap Fund", "HDFC Flexi Cap Fund", r"HDFC ELSS Tax ?Saver",
+                  "HDFC Small Cap Fund", "HDFC Balanced Advantage Fund"),
+    "ter": ("HDFC Large Cap Fund", "HDFC Flexi Cap Fund", r"HDFC ELSS - Tax Saver Fund",
+            "HDFC Small Cap Fund", "HDFC Balanced Advantage Fund"),
+}
+# Performance content the loader must have dropped from scheme pages (PRD: no returns).
+FORBIDDEN_TEXT = {"scheme_page": r"since inception|Scheme Returns|Historical Performance"}
 
 
-def strict_problems(result, chunks) -> list[str]:
+def strict_problems(result) -> list[str]:
     problems = [f"failed to load {e.url}: {e.message}" for e in result.errors]
     for doc in result.documents:
-        fields = {c.field for c in chunks if c.url == doc.url}
-        missing = [f for f in REQUIRED_FIELDS if f not in fields]
+        required = dict(REQUIRED_TEXT.get(doc.doc_type, {}))
+        if "ELSS" in doc.scheme and doc.doc_type in ("scheme_page", "kim"):
+            required.update(REQUIRED_TEXT_ELSS)
+        missing = [label for label, pattern in required.items()
+                   if not re.search(pattern, doc.text, re.I)]
+        missing += [name.replace(" ?", " ")
+                    for name in REQUIRED_SCHEMES.get(doc.doc_type, ())
+                    if not re.search(name, doc.text, re.I)]
         if missing:
-            problems.append(f"{doc.scheme}: missing {', '.join(missing)} ({doc.url})")
+            problems.append(f"{doc.scheme} {doc.doc_type}: missing {', '.join(missing)} ({doc.url})")
+        forbidden = FORBIDDEN_TEXT.get(doc.doc_type)
+        if forbidden and re.search(forbidden, doc.text, re.I):
+            problems.append(f"{doc.scheme} {doc.doc_type}: performance text not removed ({doc.url})")
     return problems
 
 
@@ -73,6 +106,11 @@ def main() -> None:
         help="exit 1 without touching the index if any page failed or lacks core facts "
              "(use in deployment builds so a bad fetch never goes live)",
     )
+    parser.add_argument(
+        "--check-only", action="store_true",
+        help="load and run the strict checks, then stop (no chunking, embedding or "
+             "index changes)",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
     logging.getLogger("pypdf").setLevel(logging.ERROR)  # noisy font warnings
@@ -80,19 +118,26 @@ def main() -> None:
 
     print("1/4 loading ...")
     result = load_corpus(args.sources, use_cache=not args.refresh)
+    for err in result.stale:
+        print(f"  STALE {err.url} :: {err.message}")
     if not result.documents:
         for err in result.errors:
             print(f"  FAIL {err.url} :: {err.message}")
         raise SystemExit("no documents loaded; index left unchanged")
 
+    if args.strict or args.check_only:
+        problems = strict_problems(result)
+        for problem in problems:
+            print(f"  STRICT: {problem}")
+        if problems:
+            raise SystemExit("strict mode: refusing to publish incomplete data; index left unchanged")
+        if args.check_only:
+            print(f"check passed: {len(result.documents)} pages loaded "
+                  f"({len(result.stale)} from last good copy); index not touched")
+            return
+
     print("2/4 chunking ...")
     chunks = chunk_documents(result.documents)
-    if args.strict:
-        problems = strict_problems(result, chunks)
-        if problems:
-            for problem in problems:
-                print(f"  STRICT: {problem}")
-            raise SystemExit("strict mode: refusing to publish incomplete data; index left unchanged")
 
     print(f"3/4 embedding {len(chunks)} chunks ...")
     vectors = embed_texts([c.text for c in chunks])
@@ -104,6 +149,7 @@ def main() -> None:
     per_url = Counter(c.url for c in chunks)
     print("\nSummary")
     print(f"  URLs ok:     {len(result.documents)}")
+    print(f"  URLs stale (last good copy): {len(result.stale)}")
     print(f"  URLs failed: {len(result.errors)}")
     print(f"  seeds skipped (not fetched): {result.skipped_seeds}")
     for doc in result.documents:
