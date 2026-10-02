@@ -1,0 +1,31 @@
+# Render Blueprint: one free web service.
+#
+# Render's disk is ephemeral and free services have no persistent disk, so the
+# vector index is rebuilt on every deploy: the build fetches the five Groww pages,
+# downloads the embedding model and builds Chroma. `--strict` fails the build on a
+# failed or incomplete page, so Render keeps serving the previous deploy instead.
+# A daily redeploy (.github/workflows/refresh-data.yml → Render deploy hook)
+# keeps the data current.
+services:
+  - type: web
+    name: hdfc-mf-faq-chatbot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && python scripts/ingest.py --refresh --strict
+    startCommand: >-
+      streamlit run src/app/main.py
+      --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.10
+      # Keep the embedding model inside the project directory: only files there
+      # carry over from the build to the running service.
+      - key: HF_HOME
+        value: /opt/render/project/src/.cache/huggingface
+      - key: ANONYMIZED_TELEMETRY
+        value: "False"
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: GROQ_API_KEY
+        sync: false  # secret: entered in the Render dashboard, never committed

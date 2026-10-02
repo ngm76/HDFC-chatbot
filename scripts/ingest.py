@@ -3,8 +3,10 @@
 load → chunk → embed → store (architecture §4.1), then write fetched_at back to
 sources.csv for every URL that loaded. Run from the project root:
 
-    python scripts/ingest.py            # reuse cached downloads in data/raw/
-    python scripts/ingest.py --refresh  # re-download every URL
+    python scripts/ingest.py                     # reuse cached downloads in data/raw/
+    python scripts/ingest.py --refresh           # re-download every URL
+    python scripts/ingest.py --refresh --strict  # deployment build: fail (exit 1) if any
+                                                 # page failed or lacks core facts
 """
 
 from __future__ import annotations
@@ -46,10 +48,31 @@ def update_fetched_at(sources_csv: Path, docs: list[Document]) -> int:
     return updated
 
 
+# Facts every scheme page must yield. If one is missing, the page probably changed
+# layout or came back partial (e.g. blocked), so a strict build refuses to publish it.
+REQUIRED_FIELDS = ("nav", "expense_ratio", "aum", "min_sip", "exit_load", "riskometer",
+                   "benchmark", "fund_managers", "holdings")
+
+
+def strict_problems(result, chunks) -> list[str]:
+    problems = [f"failed to load {e.url}: {e.message}" for e in result.errors]
+    for doc in result.documents:
+        fields = {c.field for c in chunks if c.url == doc.url}
+        missing = [f for f in REQUIRED_FIELDS if f not in fields]
+        if missing:
+            problems.append(f"{doc.scheme}: missing {', '.join(missing)} ({doc.url})")
+    return problems
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Rebuild the hdfc_mf_faq Chroma index")
     parser.add_argument("--sources", type=Path, default=DEFAULT_SOURCES)
     parser.add_argument("--refresh", action="store_true", help="ignore data/raw/ cache")
+    parser.add_argument(
+        "--strict", action="store_true",
+        help="exit 1 without touching the index if any page failed or lacks core facts "
+             "(use in deployment builds so a bad fetch never goes live)",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
     logging.getLogger("pypdf").setLevel(logging.ERROR)  # noisy font warnings
@@ -64,6 +87,12 @@ def main() -> None:
 
     print("2/4 chunking ...")
     chunks = chunk_documents(result.documents)
+    if args.strict:
+        problems = strict_problems(result, chunks)
+        if problems:
+            for problem in problems:
+                print(f"  STRICT: {problem}")
+            raise SystemExit("strict mode: refusing to publish incomplete data; index left unchanged")
 
     print(f"3/4 embedding {len(chunks)} chunks ...")
     vectors = embed_texts([c.text for c in chunks])

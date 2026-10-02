@@ -1,0 +1,29 @@
+# Daily data refresh: trigger a Render redeploy, whose build re-fetches the Groww
+# pages and rebuilds the vector index (see render.yaml). Free on GitHub Actions and
+# works while the free Render service is asleep.
+#
+# Setup: Render dashboard → the service → Settings → Deploy Hook → copy the URL,
+# then GitHub → this repo → Settings → Secrets and variables → Actions →
+# New repository secret named RENDER_DEPLOY_HOOK_URL.
+name: Refresh fund data (redeploy on Render)
+
+on:
+  schedule:
+    # 15:30 UTC = 21:00 IST, after mutual fund NAVs are published for the day.
+    - cron: "30 15 * * *"
+  workflow_dispatch: {}  # "Run workflow" button for a manual refresh
+
+jobs:
+  redeploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy hook
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::error::Repository secret RENDER_DEPLOY_HOOK_URL is not set"
+            exit 1
+          fi
+          curl --fail --silent --show-error -X POST "$HOOK"
+          echo "Redeploy triggered; Render rebuilds the index with fresh Groww data."

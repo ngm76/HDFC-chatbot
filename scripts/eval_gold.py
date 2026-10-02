@@ -28,13 +28,19 @@ from src.rag.retrieve import TOP_K, retrieve  # noqa: E402
 # The corpus is the five Groww scheme pages named in docs/problemstatement.txt.
 CORPUS_HOSTS = ("groww.in",)
 
-# (category, question, regex the answer must match, expected fact in words)
-# Expected facts are read off the Groww pages ingested 2026-09-27 (NAV as of 25 Sep '26).
+# Figures that change with each data refresh (NAV daily; AUM, TER and holdings
+# monthly). For these, a test expects the value on the *current* fact card
+# (pattern "card:<field>") instead of a hard-coded number, so the evaluation stays
+# valid after every refresh. It then checks routing and quoting, not the market.
+CARD = "card"
+
+# (category, question, regex the answer must match | "card:<field>", expected in words)
+# Stable facts were read off the Groww pages; volatile ones come from the current cards.
 GOLD: list[tuple[str, str, str, str]] = [
     ("Expense ratio", "What is the expense ratio of HDFC Large Cap Fund Direct Growth?",
-     r"1\.03\s*%", "1.03%"),
+     "card:expense_ratio", "current TER"),
     ("Expense ratio", "What is the expense ratio of HDFC Small Cap Fund Direct Growth?",
-     r"0\.78\s*%", "0.78%"),
+     "card:expense_ratio", "current TER"),
     # Not on Groww's ELSS page: expected to miss in a Groww-only corpus.
     ("Lock-in", "What is the lock-in for HDFC ELSS Tax Saver?",
      r"\b(3|three)[\s-]*years?\b", "3 years (not on the Groww page)"),
@@ -55,14 +61,10 @@ GOLD: list[tuple[str, str, str, str]] = [
     # Groww pages only name the registrar (CAMS); there is no download guide.
     ("Statement", "How do I download my capital gains statement?",
      r"\b(CAMS|camsonline)\b", "via the registrar CAMS (camsonline.com)"),
-    ("AUM", "What is the fund size of HDFC Small Cap Fund?",
-     r"41,?890\.86", "₹41,890.86 Cr"),
-    ("AUM", "What is the AUM of HDFC Large Cap Fund?",
-     r"39,?933\.37", "₹39,933.37 Cr"),
-    ("NAV", "What is the NAV of HDFC Flexi Cap Fund Direct Growth?",
-     r"2,?214\.57", "₹2,214.57 (25 Sep '26)"),
-    ("NAV", "What is the NAV of HDFC Small Cap Fund Direct Growth?",
-     r"159\.82", "₹159.82 (25 Sep '26)"),
+    ("AUM", "What is the fund size of HDFC Small Cap Fund?", "card:aum", "current AUM"),
+    ("AUM", "What is the AUM of HDFC Large Cap Fund?", "card:aum", "current AUM"),
+    ("NAV", "What is the NAV of HDFC Flexi Cap Fund Direct Growth?", "card:nav", "current NAV"),
+    ("NAV", "What is the NAV of HDFC Small Cap Fund Direct Growth?", "card:nav", "current NAV"),
     # Both managers must appear: an answer naming only one is incomplete.
     ("Fund manager", "Who is the fund manager of HDFC Small Cap Fund?",
      r"Chirag\s+Setalvad.*Dhruv\s+Muchhal|Dhruv\s+Muchhal.*Chirag\s+Setalvad",
@@ -74,10 +76,47 @@ GOLD: list[tuple[str, str, str, str]] = [
      r"fee\s+payable", "A fee payable to a mutual fund house for managing investments"),
     # Holdings analysis: sums of the listed weights, computed at ingest.
     ("Holdings analysis", "Can you give me the holdings analysis of HDFC Balanced Advantage Fund?",
-     r"73\.26\s*%.*23\.76\s*%|23\.76\s*%.*73\.26\s*%", "equity 73.26%, debt 23.76% (calculated)"),
+     "card:holdings_breakdown", "current equity % (calculated)"),
     ("Holdings analysis", "What is the equity vs debt ratio of HDFC Small Cap Fund?",
-     r"89\.64\s*%", "equity 89.64%, debt 0.00% (calculated)"),
+     "card:holdings_breakdown", "current equity % (calculated)"),
 ]
+
+
+_NUMBER_RE = re.compile(r"[\d,]*\d(?:\.\d+)?%?")
+
+
+def card_pattern(scheme: str, field: str) -> tuple[str, str]:
+    """(regex for the first figure on the scheme's current `field` card, that figure).
+    For holdings_breakdown the asset-class summary card is used (first figure =
+    equity %)."""
+    from src.rag.retrieve import _collection
+
+    cards = _collection().get(where={"$and": [{"scheme": scheme}, {"field": field}]},
+                              include=["documents"])["documents"]
+    if field == "holdings_breakdown":
+        cards = [c for c in cards if "asset allocation" in c] or cards
+    if not cards:
+        return r"(?!x)x", "no card"  # never matches
+    if field == "holdings_breakdown":
+        equity = re.search(r"\bequity (\d+\.\d+%)", cards[0])
+        if equity:
+            return re.escape(equity.group(1)), f"equity {equity.group(1)}"
+    value = cards[0].split(": ", 2)[-1]
+    number = _NUMBER_RE.search(value)
+    if not number:
+        return re.escape(value[:20]), value[:20]
+    token = number.group(0)
+    return re.escape(token).replace(r"\,", ",?"), token
+
+
+def resolve_pattern(question: str, pattern: str) -> tuple[str, str | None]:
+    """Turn "card:<field>" into a concrete regex for the question's fund."""
+    if not pattern.startswith("card:"):
+        return pattern, None
+    from src.schemes import detect_schemes
+
+    schemes = detect_schemes(question)
+    return card_pattern(schemes[0], pattern.split(":", 1)[1]) if schemes else (r"(?!x)x", None)
 
 
 # Retrieval matrix: every fund × every field. Values from the Groww pages ingested
@@ -94,41 +133,35 @@ MATRIX_QUESTIONS: dict[str, str] = {
     "holdings": "What are the holdings in {fund}?",
     "holdings_count": "How many holdings does {fund} have?",
 }
+# Volatile fields ("card") are checked against the fund's current card; the rest
+# are stable facts read off the Groww pages.
+_VOLATILE = {"expense_ratio": CARD, "aum": CARD, "nav": CARD, "holdings": CARD,
+             "holdings_count": CARD}
 MATRIX_FACTS: dict[str, dict[str, str]] = {
     "HDFC Large Cap Fund": {
-        "expense_ratio": r"1\.03%", "aum": r"39,933\.37", "nav": r"1,189\.08",
-        "min_sip": r"₹100\b", "exit_load": r"1% if redeemed within 1 year",
+        **_VOLATILE, "min_sip": r"₹100\b", "exit_load": r"1% if redeemed within 1 year",
         "riskometer": r"Very High", "benchmark": r"NIFTY 100",
         "fund_managers": r"Rahul Baijal.*Dhruv Muchhal|Dhruv Muchhal.*Rahul Baijal",
-        "holdings": r"ICICI Bank", "holdings_count": r"\b50 holdings in total",
     },
     "HDFC Flexi Cap Fund": {
-        "expense_ratio": r"0\.77%", "aum": r"1,13,606\.47", "nav": r"2,214\.57",
-        "min_sip": r"₹100\b", "exit_load": r"1% if redeemed within 1 year",
+        **_VOLATILE, "min_sip": r"₹100\b", "exit_load": r"1% if redeemed within 1 year",
         "riskometer": r"Very High", "benchmark": r"NIFTY 500",
         "fund_managers": r"Amit Ganatra.*Dhruv Muchhal|Dhruv Muchhal.*Amit Ganatra",
-        "holdings": r"ICICI Bank", "holdings_count": r"\b86 holdings in total",
     },
     "HDFC ELSS Tax Saver Fund": {
-        "expense_ratio": r"1\.21%", "aum": r"15,991\.78", "nav": r"1,447\.38",
-        "min_sip": r"₹500\b", "exit_load": r"\bNil\b",
+        **_VOLATILE, "min_sip": r"₹500\b", "exit_load": r"\bNil\b",
         "riskometer": r"Very High", "benchmark": r"NIFTY 500",
         "fund_managers": r"Amar Kalkundrikar.*Dhruv Muchhal|Dhruv Muchhal.*Amar Kalkundrikar",
-        "holdings": r"ICICI Bank", "holdings_count": r"\b65 holdings in total",
     },
     "HDFC Small Cap Fund": {
-        "expense_ratio": r"0\.78%", "aum": r"41,890\.86", "nav": r"159\.82",
-        "min_sip": r"₹100\b", "exit_load": r"1% if redeemed within 1 year",
+        **_VOLATILE, "min_sip": r"₹100\b", "exit_load": r"1% if redeemed within 1 year",
         "riskometer": r"Very High", "benchmark": r"BSE 250 SmallCap",
         "fund_managers": r"Chirag Setalvad.*Dhruv Muchhal|Dhruv Muchhal.*Chirag Setalvad",
-        "holdings": r"Firstsource Solutions", "holdings_count": r"\b87 holdings in total",
     },
     "HDFC Balanced Advantage Fund": {
-        "expense_ratio": r"0\.78%", "aum": r"1,07,295\.79", "nav": r"557\.73",
-        "min_sip": r"₹100\b", "exit_load": r"15%",
+        **_VOLATILE, "min_sip": r"₹100\b", "exit_load": r"15%",
         "riskometer": r"Very High", "benchmark": r"NIFTY 50 Hybrid Composite",
         "fund_managers": r"Anil Bamboli",
-        "holdings": r"ICICI Bank", "holdings_count": r"\b326 holdings in total",
     },
 }
 
@@ -150,7 +183,10 @@ def run_matrix() -> None:
         for field in fields:
             question = MATRIX_QUESTIONS[field].format(fund=fund)
             chunks = retrieve(question)
-            fact = re.compile(facts[field], re.I | re.S)
+            pattern = facts[field]
+            if pattern == CARD:
+                pattern, _ = card_pattern(f"{fund} Direct Growth", CARD_FIELD.get(field, field))
+            fact = re.compile(pattern, re.I | re.S)
             rank = next((r for r, c in enumerate(chunks, 1) if fact.search(c["text"])), None)
             first = chunks[0] if chunks else None
             expected_field = CARD_FIELD.get(field, field)
@@ -186,6 +222,8 @@ def main() -> None:
         print("|---|---|---|---|---|")
         found = 0
         for i, (category, question, pattern, expected) in enumerate(GOLD, 1):
+            pattern, current = resolve_pattern(question, pattern)
+            expected = f"{expected}: {current}" if current else expected
             fact = re.compile(pattern, re.I | re.S)
             chunks = retrieve(question)
             rank = next((r for r, c in enumerate(chunks, 1) if fact.search(" ".join(c["text"].split()))), None)
@@ -199,6 +237,8 @@ def main() -> None:
     print("|---|---|---|---|---|---|---|---|")
     totals = {"retrieved": 0, "answered": 0, "cited": 0}
     for i, (category, question, pattern, expected) in enumerate(GOLD, 1):
+        pattern, current = resolve_pattern(question, pattern)
+        expected = f"{expected}: {current}" if current else expected
         fact = re.compile(pattern, re.I | re.S)
         chunks = retrieve(question)
         rank = next((r for r, c in enumerate(chunks, 1) if fact.search(" ".join(c["text"].split()))), None)

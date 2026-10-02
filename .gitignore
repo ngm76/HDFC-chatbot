@@ -7,3 +7,4 @@ data/raw/
 data/chroma/
 .pytest_cache/
 data/debug/
+.cache/

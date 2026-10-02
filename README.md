@@ -25,9 +25,11 @@ Product spec: [docs/PRD.md](docs/PRD.md) · Design: [docs/architecture.md](docs/
 **Source list:** [data/sources.csv](data/sources.csv).
 - **`role=ingest`:** the five Groww pages above. These are the **only** documents in
   the vector database.
-- **`role=reference`:** two official links that are never searched. They are used
-  only in refusals: AMFI's investor-education page for advice questions, and the
-  HDFC MF factsheet for returns questions, as the brief requires.
+- **`role=reference`:** two official links that are never searched. The HDFC MF
+  factsheet is the link on returns refusals, as the brief requires. AMFI's
+  investor-education page is the link on out-of-scope refusals. Advice refusals
+  carry no link (owner decision); they reply "I can only share facts from Groww
+  scheme pages, so I can't recommend whether to buy, sell or choose a fund."
 
 This follows [docs/problemstatement.txt](docs/problemstatement.txt), which names the
 five Groww URLs as the pages to use. It supersedes PRD §5.2, which had treated them
@@ -127,6 +129,42 @@ downloads the embedding model (about 90 MB).
 streamlit run src/app/main.py
 ```
 
+## Deploy on Render (free plan)
+
+The repo includes a Render Blueprint ([render.yaml](render.yaml)) for one free web
+service.
+
+**How the data stays current.** Render's disk is temporary and free services have
+no persistent disk or cron jobs, so the index is rebuilt on every deploy:
+
+1. **Build:** `pip install -r requirements.txt && python scripts/ingest.py --refresh --strict`.
+   This fetches the five Groww pages, downloads the embedding model into
+   `.cache/` (inside the project, so it carries over to runtime) and builds Chroma.
+2. **Safe refresh:** `--strict` fails the build if any page fails to load or lacks
+   a core fact (NAV, TER, AUM, SIP, exit load, riskometer, benchmark, managers,
+   holdings). Render then keeps serving the previous working deploy.
+3. **Daily refresh:** [.github/workflows/refresh-data.yml](.github/workflows/refresh-data.yml)
+   calls Render's deploy hook at 21:00 IST every day (free on GitHub Actions).
+   That redeploys with fresh data, and it works while the free service is asleep.
+4. **Staleness banner:** if the data is more than 3 days old, the app shows a warning.
+
+**One-time setup**
+1. Render: **New → Blueprint**, then pick this GitHub repo. Render reads `render.yaml`.
+2. Enter **`GROQ_API_KEY`** when prompted. It's a secret and is never committed.
+3. Render: the service → **Settings → Deploy Hook**. Copy the URL.
+4. GitHub: repo → **Settings → Secrets and variables → Actions → New repository
+   secret** named `RENDER_DEPLOY_HOOK_URL`, holding that URL.
+5. Optional: GitHub → **Actions → Refresh fund data → Run workflow** to test it.
+
+**Free-plan notes**
+- **Memory:** peak about 305 MB (measured with the model, Chroma and Streamlit
+  loaded) against the 512 MB limit.
+- **Sleep:** the service sleeps after ~15 minutes idle. The first visit afterwards
+  takes ~30–60 s while it wakes and loads the model.
+- **Inactive repos:** GitHub pauses scheduled workflows in repos with no activity
+  for 60 days. Re-enable it from the Actions tab.
+- **Blocking:** if Groww blocks Render's servers, the strict build fails with a
+  clear `STRICT:` message in the build log.
 ### Generator
 
 The generator is picked automatically: **Claude** if `ANTHROPIC_API_KEY` is set,

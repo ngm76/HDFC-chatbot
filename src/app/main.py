@@ -10,6 +10,7 @@ the redacted question, never the raw input. Nothing is written to disk. The last
 from __future__ import annotations
 
 import sys
+from datetime import date
 from pathlib import Path
 
 import streamlit as st
@@ -18,6 +19,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.guards.common import corpus_last_fetched  # noqa: E402
 from src.rag.context import HISTORY_TURNS  # noqa: E402
 from src.rag.generate import generator_label  # noqa: E402
 from src.rag.pipeline import Answer, ask  # noqa: E402
@@ -28,6 +30,7 @@ WELCOME = (
     "managers."
 )
 FACTS_ONLY_NOTE = "Facts-only. No investment advice."
+STALE_AFTER_DAYS = 3  # the daily refresh normally keeps data under a day old
 DISCLAIMER = (
     "Facts-only answers from public scheme pages. This is not investment "
     "advice. Mutual fund investments are subject to market risks. Read all "
@@ -49,6 +52,21 @@ def _warm_up() -> None:
     from src.rag.retrieve import retrieve
 
     retrieve("warm up")
+
+
+def _staleness_note() -> str | None:
+    """A warning when the scheme pages were last fetched more than STALE_AFTER_DAYS
+    ago (e.g. the scheduled refresh has been failing)."""
+    last = corpus_last_fetched()
+    if not last:
+        return None
+    age = (date.today() - date.fromisoformat(last)).days
+    if age <= STALE_AFTER_DAYS:
+        return None
+    return (
+        f"Data last refreshed on {last} ({age} days ago). Figures such as NAV, fund "
+        "size and holdings may have changed since."
+    )
 
 
 def render_answer(answer: Answer) -> None:
@@ -73,6 +91,9 @@ def main() -> None:
     st.set_page_config(page_title="HDFC MF FAQ", page_icon="📄", layout="centered")
     st.title("Mutual Fund FAQ")
     st.success(FACTS_ONLY_NOTE, icon="ℹ️")
+    stale = _staleness_note()
+    if stale:
+        st.warning(stale, icon="⏳")
 
     with st.sidebar:
         st.subheader("About")

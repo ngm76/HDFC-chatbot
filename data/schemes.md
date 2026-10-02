@@ -27,7 +27,7 @@ These appear only in refusal messages, as the problem statement requires:
 
 | Use | URL |
 | --- | --- |
-| Educational link for advice / out-of-scope refusals | https://www.amfiindia.com/investor |
+| Educational link for out-of-scope refusals (advice refusals carry no link) | https://www.amfiindia.com/investor |
 | "Link to the official factsheet" for returns / performance questions | https://files.hdfcfund.com/s3fs-public/2026-09/HDFC%20MF%20Factsheet%20-%20August%202026.pdf |
 
 ## What the loader keeps from each Groww page

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-from src.guards.common import AnswerPayload, educational_source, make_payload
+from src.guards.common import AnswerPayload, make_payload
 
 _ADVICE_RE = re.compile(
     r"|".join(
@@ -33,9 +33,8 @@ _ADVICE_RE = re.compile(
 )
 
 REFUSAL_TEXT = (
-    "I can only share facts from public scheme pages, so I can't recommend "
-    "whether to buy, sell or choose a fund. For help deciding what suits you, see "
-    "AMFI's investor education resources or consult a SEBI-registered investment adviser."
+    "I can only share facts from Groww scheme pages, so I can't recommend whether "
+    "to buy, sell or choose a fund."
 )
 
 
@@ -44,6 +43,6 @@ def is_advice(text: str) -> bool:
 
 
 def refusal() -> AnswerPayload:
-    return make_payload(
-        REFUSAL_TEXT, educational_source(), refusal=True, refusal_reason="advice"
-    )
+    # No link (owner decision, 2026-10-02): the brief suggested an educational link,
+    # but the reply is clearer as a plain statement.
+    return make_payload(REFUSAL_TEXT, None, refusal=True, refusal_reason="advice")

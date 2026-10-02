@@ -15,6 +15,7 @@ import src.ingest.chroma_compat  # noqa: F401  (must run before chromadb is impo
 import chromadb
 import numpy as np
 from chromadb.api.models.Collection import Collection
+from chromadb.config import Settings
 
 from src.ingest.chunk import Chunk
 from src.ingest.embed import EMBED_DIM, MODEL_ID
@@ -30,7 +31,8 @@ _COLLECTION_METADATA = {"hnsw:space": "cosine", "embedding_model": MODEL_ID}
 
 def _client(path: Path) -> chromadb.ClientAPI:
     path.mkdir(parents=True, exist_ok=True)
-    return chromadb.PersistentClient(path=str(path))
+    # No anonymous usage telemetry from the vector store.
+    return chromadb.PersistentClient(path=str(path), settings=Settings(anonymized_telemetry=False))
 
 
 def open_collection(path: Path = CHROMA_DIR) -> Collection:
