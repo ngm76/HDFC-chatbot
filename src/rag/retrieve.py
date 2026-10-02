@@ -69,7 +69,7 @@ QUERY_SYNONYMS: list[tuple[re.Pattern[str], str, tuple[str, ...]]] = [
     (re.compile(r"\b(statements?|cas|download)\b", re.I),
      "how to get an account statement, capital gains statement or consolidated account "
      "statement (CAS)", ("statement_steps",)),
-    (re.compile(r"\bexit\s+load\b", re.I), "exit load (current)", ("exit_load", "exit_load_rules")),
+    (re.compile(r"\bexit\s+load\b", re.I), "exit load (current)", ("exit_load",)),
     (re.compile(r"\block[\s-]?in\b", re.I), "lock-in period", ("lock_in",)),
     (re.compile(r"\b(min(imum)?\s+(investment|lump\s*sum|application|purchase)|lump\s*sum)\b", re.I),
      "minimum application amount (lump sum)", ("min_lumpsum",)),

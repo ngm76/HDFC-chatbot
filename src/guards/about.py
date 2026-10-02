@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from src.guards.common import AnswerPayload, corpus_last_fetched
+from src.guards.common import AnswerPayload, make_payload, schemes_listing_source
 from src.schemes import SCHEME_CATEGORIES
 
 _ABOUT_RE = re.compile(
@@ -25,6 +25,9 @@ _ABOUT_RE = re.compile(
             r"\bwhat\s+(can|do)\s+you\s+(do|answer|cover|know|help)",
             r"\bhow\s+many\s+(mutual\s+)?(funds?|schemes?)\b",
             r"\b(your|the)\s+(scope|coverage)\b",
+            # greetings and thanks get the same short introduction
+            r"^\s*(hi|hello|hey|namaste|thanks|thank\s+you|good\s+(morning|afternoon|evening))\b"
+            r"[\s!.,?]*$",
         ]
     ),
     re.I,
@@ -35,11 +38,11 @@ _FUND_LIST = ", ".join(
     for name, category in SCHEME_CATEGORIES.items()
 )
 ABOUT_TEXT = (
-    f"I can answer factual questions about five HDFC Mutual Fund schemes (Direct "
-    f"Growth plans): {_FUND_LIST}. For each, I can share facts such as expense "
-    f"ratio, exit load, minimum SIP, riskometer, benchmark, fund size (AUM), NAV and "
-    f"fund managers, taken from its public Groww scheme page. I don't give investment "
-    f"advice or compare returns."
+    f"I answer factual questions about five HDFC Mutual Fund schemes (Direct Plan - "
+    f"Growth): {_FUND_LIST}. I can share facts such as expense ratio, exit load, "
+    f"minimum SIP, lock-in, riskometer, benchmark, NAV, fund size and holdings, and how "
+    f"to download statements, from official HDFC Mutual Fund, SEBI and AMFI pages. I "
+    f"don't give investment advice or compare returns."
 )
 
 
@@ -48,12 +51,5 @@ def is_about(text: str) -> bool:
 
 
 def answer() -> AnswerPayload:
-    # Not a fact from one page, so there is no single citation; the five scheme
-    # pages are listed in data/sources.csv and the README.
-    return AnswerPayload(
-        text=ABOUT_TEXT,
-        source_url=None,
-        last_updated_from_sources=corpus_last_fetched(),
-        refusal=False,
-        refusal_reason=None,
-    )
+    # Every response carries one link (FR-5): the HDFC MF schemes listing.
+    return make_payload(ABOUT_TEXT, schemes_listing_source(), refusal=False)

@@ -60,8 +60,8 @@ that phase: fix the loader/registry, record the gap, then continue.
 | 12 | Official source registry (~22 pages) | B | ✅ Done |
 | 13 | Loading official sources | B | ✅ Done |
 | 14 | Chunking official documents | B | ✅ Done |
-| 15 | Intent + guards per PRD §6 | B | ⬜ Next |
-| 16 | Retrieval re-tune | B | ⬜ |
+| 15 | Intent + guards per PRD §6 | B | ✅ Done |
+| 16 | Retrieval re-tune | B | ⬜ Next |
 | 17 | Response template + validator | B | ⬜ |
 | 18 | Freshness + refresh | B | ⬜ |
 | 19 | UI per PRD §9 | B | ⬜ |
@@ -354,9 +354,32 @@ is one retrievable card that names its scheme, plan and source date.
   when two schemes match, return a clarify payload with chips.
 - **Direct plan default** (FR-3).
 
+**As built (2026-10-03)**
+- Precedence: PII (block) → advice → performance → about → out-of-scope → ambiguous
+  name (chips) → no fund named (clarify) → fact. "About" (incl. greetings) runs before
+  out-of-scope so "What can you do?" is not treated as non-MF.
+- PII: `ask()` checks first and returns the FR-11 message with the Groww help link;
+  nothing else reads the message. Aadhaar uses the Verhoeff check (a failing 12-digit
+  number is still blocked, as ACCOUNT).
+- Advice (FR-8): refusal + offer of facts (for a mixed message, the specific fact as a
+  separate question) + AMFI investor education link. This replaces the earlier
+  owner choice of a link-free advice reply (2026-10-02), per the PRD.
+- Out-of-scope reasons with their own text and link: other AMC (incl. "SBI Small Cap"
+  without "fund") → AMFI; other HDFC scheme (incl. "HDFC Mid Cap Opportunities") → HDFC
+  MF schemes listing (new `role=reference` row); Regular/IDCW → the scheme page;
+  live data → factsheet; non-MF → one-line redirect to `groww.in/help`.
+- Names (`src/schemes.py`): former names (HDFC Top 100, HDFC Equity Fund, HDFC TaxSaver)
+  with a "formerly called" note; misspellings by fuzzy match (one match → assumed
+  with a note; several → chips); "HDFC cap fund" → chips. Payloads carry `chips`.
+- Fixed a latent bug: the performance pattern read the plan name "Direct Growth … 3
+  years" as a growth claim (it hid the ELSS lock-in card from the offline fallback).
+- Every non-answer response now carries one link (checked by the suite).
+- Results: `debug_guards.py` 92/92 (all PRD §6 examples and §8 edge cases, PII never
+  reaching retrieval/model); matrix 50/50; gold retrieval 20/20.
+
 **Done when**
-- [ ] `scripts/debug_guards.py` covers every PRD §6 example and §8 edge case
-- [ ] Refusal recall 100% on the advice/performance cases; PII never reaches retrieval or logs
+- [x] `scripts/debug_guards.py` covers every PRD §6 example and §8 edge case
+- [x] Refusal recall 100% on the advice/performance cases; PII never reaches retrieval or logs
 
 ---
 

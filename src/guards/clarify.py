@@ -1,14 +1,15 @@
-"""Ambiguous-scheme guard (architecture §12): a fund-fact question that names none
-of the five schemes gets a request to name the fund, instead of an answer about
-whichever fund happens to rank first in retrieval.
+"""Ambiguous-scheme guard (PRD FR-2, §8): a fund-fact question that names none of
+the five schemes gets a request to name the fund, instead of an answer about
+whichever fund happens to rank first in retrieval. When the name fits more than one
+scheme ("HDFC cap fund"), the reply carries chips to pick from.
 """
 
 from __future__ import annotations
 
 import re
 
-from src.guards.common import AnswerPayload
-from src.schemes import SCHEME_CATEGORIES, detect_schemes
+from src.guards.common import AnswerPayload, make_payload, schemes_listing_source
+from src.schemes import SCHEME_CATEGORIES, detect_schemes, fuzzy_schemes, short_name
 
 # Facts that differ per fund, so the fund must be known before answering.
 _FUND_FACT_RE = re.compile(
@@ -40,15 +41,20 @@ def needs_fund(text: str) -> bool:
     return (
         bool(_FUND_FACT_RE.search(text))
         and not detect_schemes(text)
+        and len(fuzzy_schemes(text)) != 1
         and not _DEFINITION_RE.search(text)
     )
 
 
-def clarification() -> AnswerPayload:
-    return AnswerPayload(
-        text=CLARIFY_TEXT,
-        source_url=None,
-        last_updated_from_sources=None,
-        refusal=True,
-        refusal_reason="clarify",
-    )
+def clarification(candidates: list[str] | None = None) -> AnswerPayload:
+    """Ask which fund; with `candidates` (an ambiguous name), offer them as chips."""
+    if candidates:
+        names = [short_name(c) for c in candidates]
+        text = (f"Which fund do you mean: {', '.join(names[:-1])} or {names[-1]}? "
+                "Please pick one so I can answer for the right scheme.")
+    else:
+        names = [short_name(c) for c in SCHEME_CATEGORIES]
+        text = CLARIFY_TEXT
+    payload = make_payload(text, schemes_listing_source(), refusal=True, refusal_reason="clarify")
+    payload["chips"] = names
+    return payload

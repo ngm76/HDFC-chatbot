@@ -1,8 +1,9 @@
 """Phase 8: the full query path (architecture §4.2).
 
-guards → (conversation context) → retrieve → generate → assemble. Only the
-redacted query goes past the guards, and failures are logged by type only,
-never with the user's text.
+PII check → guards → (conversation context) → retrieve → generate → assemble.
+A message with PII is blocked first, before anything else reads it (FR-10/11);
+otherwise only the redacted query goes past the guards, and failures are logged
+by type only, never with the user's text.
 
 `history` is the recent conversation (redacted questions + answer texts, kept
 in the UI session). It lets follow-ups ("And its exit load?", "What about Large
@@ -16,13 +17,14 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from src.guards.common import AnswerPayload
-from src.guards.pipeline import run_guards
+from src.guards.pii import redact
+from src.guards.pipeline import pii_block, run_guards
 from src.rag import context
 from src.rag.assemble import assemble, generation_error, not_found, ungrounded
 from src.rag.generate import GenerationError, UngroundedNumberError, generate, generator_label
 from src.rag.holdings import absence_answer
 from src.rag.retrieve import RetrievedChunk, retrieve
-from src.schemes import detect_schemes
+from src.schemes import detect_schemes, former_name_used, fuzzy_schemes, short_name
 
 logger = logging.getLogger(__name__)
 
@@ -46,22 +48,38 @@ def ask(
 ) -> Answer:
     """`selected_scheme`: the fund picked in the UI's scheme panel, used when the
     question names no fund (before falling back to the chat history)."""
+    redacted, pii_types = redact(message.strip())
+    if pii_types:  # blocked: nothing below ever sees the message
+        decision = pii_block(pii_types, redacted)
+        return Answer(decision.payload, None, decision.query)
+
+    # A misspelled name that clearly means one scheme ("hdfc smal cap") is treated
+    # like a selection, so retrieval filters by it and the UI says what was assumed.
+    fuzzy = fuzzy_schemes(message) if not detect_schemes(message) else []
+    matched = fuzzy[0] if len(fuzzy) == 1 else None
+    pick = matched or selected_scheme
     # Carry the fund over only for questions naming none.
     carried = (
         None if detect_schemes(message)
-        else context.resolve(message, history, selected_scheme).carried_scheme
+        else context.resolve(message, history, pick).carried_scheme
     )
     decision = run_guards(message, context_scheme=carried)
     if not decision.allowed:
-        return Answer(decision.payload, decision.pii_warning, decision.query)
+        return Answer(decision.payload, None, decision.query)
 
     query = decision.query
-    resolved = context.resolve(query, history, selected_scheme)
+    resolved = context.resolve(query, history, pick)
     note = None
-    if resolved.carried_from == "selection":
+    if matched and resolved.carried_scheme == matched:
+        note = f"Assumed you mean {short_name(matched)}."
+    elif resolved.carried_from == "selection":
         note = f"Answering for {resolved.carried_scheme} (selected on the left)."
     elif resolved.carried_from == "chat":
         note = f"Follow-up: assumed you mean {resolved.carried_scheme} from earlier in the chat."
+    renamed = former_name_used(query)
+    if renamed:  # PRD §8: answer under the current name, mention the former once
+        former, scheme = renamed
+        note = f"{short_name(scheme)} was formerly called {former}."
 
     # "Does <fund> hold <company>?" with no match in the fund's full holdings list.
     # For a short follow-up ("What about Large Cap?") the company comes from the

@@ -21,8 +21,11 @@ _PERFORMANCE_RE = re.compile(
             r"\b(out|under)perform",
             r"\bbeat(s|en)?\s+((the|its|their)\s+)?(benchmark|index|market|nifty|sensex)\b",
             r"\bhow\s+much\s+(did|has|will|would)\b.*\b(grow|grown|earn|make|made|gain)\b",
-            r"\b(grow|grown|growth|gain(ed)?|earn(ed)?)\b.*\b(\d+\s*(years?|yrs?)|since\s+inception)\b",
+            # "Direct Growth" / "Growth option" is the plan name, not growth.
+            r"\b(grow|grown|(?<!direct\s)(?<!regular\s)growth(?!\s+(option|plan))|gain(ed)?|earn(ed)?)\b"
+            r".*\b(\d+\s*(years?|yrs?)|since\s+inception)\b",
             r"\bnav\s+(growth|increase|change|history)\b",
+            r"\b(rank(ing|ings|ed)?|star\s+rating|rated\s+\d)\b",
             # Not "capital gains": statements and taxation are in scope.
         ]
     ),

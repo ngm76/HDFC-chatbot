@@ -66,14 +66,14 @@ flowchart LR
 | Component | Responsibility | Module | Status |
 |---|---|---|---|
 | Source registry | URLs with publisher, doc type, scheme, question types, freshness limit, role, ingest date | `data/sources.csv`, `data/schemes.md` | ✅ official, 24 + 2 help (12) |
-| Scheme names | Canonical names, aliases, former names, categories | `src/schemes.py` | ✅ partial · ⬜ aliases (15) |
+| Scheme names | Canonical names, short forms, former names, fuzzy matching, ambiguity (chips) | `src/schemes.py` | ✅ (15) |
 | Loader | Fetch HTML/PDF/.xlsx, extract main text, clean HDFC scheme pages, allowlist, raw cache, keep last good copy | `src/ingest/load.py` | ✅ (13) |
 | Card builders | Parse each document type into fact cards | `src/ingest/official.py` (· `groww.py` for the MVP corpus) | ✅ (14) |
 | Generic chunker | Heading-aware recursive split for prose documents | `src/ingest/chunk.py` | ✅ |
 | Embedder | MiniLM-L6-v2 via ONNX Runtime, 384-dim, normalized | `src/ingest/embed.py` | ✅ |
 | Vector store | Persistent Chroma `hdfc_mf_faq`, cosine, idempotent rebuild | `src/ingest/store.py`, `chroma_compat.py` | ✅ |
 | Ingest CLI | load → chunk → embed → store; `--refresh`, `--strict`, `--check-only` | `scripts/ingest.py` | ✅ (13) |
-| Guards | PII, advice, performance, scope, about, clarify | `src/guards/*` | ✅ · ⬜ PRD §6 rules (15) |
+| Guards | PII block, advice, performance, about, scope (incl. non-MF, plan), clarify with chips | `src/guards/*` | ✅ (15) |
 | Conversation context | Last 25 exchanges; fund and topic carry-over | `src/rag/context.py` | ✅ |
 | Retriever | Query expansion, scheme filter, field routing, holdings name lookup | `src/rag/retrieve.py` | ✅ · ⬜ re-tune (16) |
 | Holdings check | Definite "not among the N holdings" (A1) | `src/rag/holdings.py` | ✅ |
@@ -256,13 +256,13 @@ split by rows with headers repeated.
 
 | Response | Link | Status |
 |---|---|---|
-| Advice refusal (FR-8) | AMFI / Mutual Funds Sahi Hai or SEBI investor education | ⬜ 15 (currently no link) |
+| Advice refusal (FR-8) | AMFI investor education page | ✅ 15 |
 | Performance refusal (FR-9) | Official HDFC MF factsheet | ✅ |
-| Out-of-scope (FR-14) | Relevant HDFC MF page (schemes listing for "scheme not in corpus") or AMFI | ✅ AMFI · ⬜ listing (15) |
-| Non-MF redirect (FR-15) | https://groww.in/help | ⬜ 15 |
-| PII block (FR-11) | https://groww.in/help/mutual-funds | ⬜ 15 |
+| Out-of-scope (FR-14) | Other AMC → AMFI; other HDFC scheme → HDFC MF schemes listing; Regular/IDCW → scheme page; live data → factsheet | ✅ 15 |
+| Non-MF redirect (FR-15) | https://groww.in/help | ✅ 15 |
+| PII block (FR-11) | https://groww.in/help/mutual-funds | ✅ 15 |
 | Miss / fallback (FR-1) | The resolved scheme's official page | ✅ |
-| About / clarify | Official schemes listing or AMFI page | ⬜ 17 |
+| About / clarify | HDFC MF schemes listing | ✅ 15 |
 
 **Validator (FR-4 and grounding)**
 - ✅ At most 3 sentences.
@@ -284,20 +284,21 @@ advice, choose advice. Mixed messages follow the highest-precedence intent.
 
 | # | Intent | Trigger (examples) | Action | Status |
 |---|---|---|---|---|
-| 1 | PII | PAN, Aadhaar (Verhoeff checksum ⬜), 10-digit mobile, email, OTP, account/folio | ⬜ **Block**: nothing sent to retrieval, the model or logs; safety message; help link; input cleared. Server-side redaction stays as a backstop. | ✅ redact · ⬜ block (15) |
-| 2 | Advice | should I buy/sell/hold/switch, which is better/suitable, own portfolio or goals | Polite refusal + offer of facts + one education link | ✅ refusal · ⬜ offer + link (15) |
+| 1 | PII | PAN, Aadhaar (Verhoeff checksum), 10-digit mobile, email, OTP, account/folio | **Block**: checked first in `ask()`, nothing sent to retrieval, the model or logs; FR-11 safety message; Groww help link (⬜ 19: input cleared in the UI). Redaction stays as the backstop. | ✅ (15) |
+| 2 | Advice | should I buy/sell/hold/switch, which is better/suitable, own portfolio or goals; mixed messages | Polite refusal + offer of facts (the specific fact for a mixed message) + AMFI education link | ✅ (15) |
 | 3 | Performance | returns, CAGR, beat benchmark, rankings, NAV growth | Refusal + factsheet link; no figures | ✅ |
-| 4 | Out-of-scope | Other AMCs, other HDFC schemes, Regular/IDCW ⬜, live data | Coverage message + one official link | ✅ · ⬜ Regular/IDCW (15) |
-| 4b | Non-MF ⬜ | Stocks, loans, cards, general chat | One-line redirect to Groww help | ⬜ 15 |
-| — | About | "Which funds can you access?" | Fixed list of the five schemes and supported facts | ✅ |
-| — | Ambiguous scheme | Fact question naming no fund (and none in context); two fuzzy matches ⬜ | "Which fund do you mean?" + chips | ✅ · ⬜ chips, fuzzy (15) |
+| — | About | "Which funds can you access?", "What can you do?", greetings | Fixed list of the five schemes and supported facts + schemes listing link (runs before out-of-scope) | ✅ |
+| 4 | Out-of-scope | Other AMCs (incl. "SBI Small Cap"), other HDFC schemes (incl. without "fund"), Regular/IDCW, live data | Coverage message + one official link per reason (§7 table) | ✅ (15) |
+| 4b | Non-MF | Stocks, loans, cards, general chat; no mutual-fund words at all | One-line redirect to Groww help | ✅ (15) |
+| — | Ambiguous scheme | Name fits several schemes ("HDFC cap fund", two fuzzy matches); fact question naming no fund (and none in context) | "Which fund do you mean?" + chips | ✅ (15) |
 | 5 | Fact | One of the 7 types (+ A1 extras) for an in-scope scheme | RAG answer | ✅ |
 
 **Scheme resolution (FR-2/3):** canonical names, former names (HDFC Top 100 → Large
 Cap, HDFC Equity Fund → Flexi Cap, HDFC Taxsaver → ELSS) and short forms (BAF,
-"hdfc smallcap") resolve to one scheme. Answers default to Direct Plan – Growth; TER
-answers add "Regular Plan values differ; see the linked page" ⬜ 15/17. Company names
-inside holdings questions are not treated as other AMCs ✅.
+"hdfc smallcap") resolve to one scheme ✅; a former name adds "X was formerly called Y"
+✅; a clear misspelling ("hdfc smal cap") is assumed with a note ✅. Answers default to
+Direct Plan – Growth; the TER card carries the Regular value for the "values differ"
+note ⬜ 17. Company names inside holdings questions are not treated as other AMCs ✅.
 
 ---
 

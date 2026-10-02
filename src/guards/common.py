@@ -1,7 +1,9 @@
 """Answer payload (architecture §7) and URL lookups from data/sources.csv.
 
-Looks at role=ingest rows (the Groww scheme pages that form the corpus) and
-role=reference rows (official AMFI / HDFC links used only in refusal messages).
+Looks at role=ingest rows (the official corpus), role=reference rows (official
+links that are never ingested, e.g. the HDFC MF schemes listing) and role=help rows
+(the two Groww help-centre links, PRD Addendum A5). Every link a guard returns comes
+from this file, never from the model.
 """
 
 from __future__ import annotations
@@ -9,7 +11,7 @@ from __future__ import annotations
 import csv
 from functools import lru_cache
 from pathlib import Path
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 from urllib.parse import urlparse
 
 from src.schemes import SHARED_SCHEME
@@ -27,6 +29,7 @@ class AnswerPayload(TypedDict):
     last_updated_from_sources: str | None
     refusal: bool
     refusal_reason: str | None
+    chips: NotRequired[list[str]]  # scheme choices for an ambiguous name (clarify)
 
 
 def make_payload(
@@ -45,7 +48,7 @@ def make_payload(
     )
 
 
-LINK_ROLES = ("ingest", "reference")
+LINK_ROLES = ("ingest", "reference", "help")
 
 
 @lru_cache(maxsize=1)
@@ -74,11 +77,28 @@ def educational_source() -> dict[str, str]:
 
 
 def scheme_page_source(scheme: str) -> dict[str, str] | None:
-    """The scheme's page in the corpus (its Groww page), used as the link on misses."""
+    """The scheme's official page (first ingest row for it), the link on misses."""
     for row in _source_rows():
         if row.get("scheme") == scheme and row.get("role") == "ingest":
             return row
     return None
+
+
+def _row(role: str, **match: str) -> dict[str, str]:
+    for row in _source_rows():
+        if row.get("role") == role and all(row.get(k) == v for k, v in match.items()):
+            return row
+    raise LookupError(f"no role={role} {match} row in {SOURCES_CSV}")
+
+
+def help_source(purpose: str) -> dict[str, str]:
+    """Groww help-centre link: purpose "pii_block" (FR-11) or "non_mf_redirect" (FR-15)."""
+    return _row("help", question_types=purpose)
+
+
+def schemes_listing_source() -> dict[str, str]:
+    """HDFC MF's list of all its schemes (for "scheme not in corpus", PRD §8)."""
+    return _row("reference", doc_type="schemes_listing")
 
 
 def factsheet_source(scheme: str | None = None) -> dict[str, str]:
