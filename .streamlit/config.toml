@@ -1,0 +1,6 @@
+[browser]
+# No usage telemetry leaves the machine.
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"
