@@ -1,4 +1,4 @@
-# Implementation guide (phase-wise)
+﻿# Implementation guide (phase-wise)
 
 **Product:** Facts-Only Mutual Fund FAQ Assistant (HDFC MF), a RAG chatbot
 **Requirements:** [PRD.md](./PRD.md) (PRD: Facts-Only Mutual Fund FAQ Assistant, 2 Oct 2026, incl. its owner-decision Addendum) · brief: [problemstatement.txt](./problemstatement.txt)
@@ -64,7 +64,7 @@ that phase: fix the loader/registry, record the gap, then continue.
 | 16 | Retrieval re-tune | B | ✅ Done |
 | 17 | Response template + validator | B | ✅ Done |
 | 18 | Freshness + refresh | B | ⬜ Next |
-| 19 | UI per PRD §9 | B | ⬜ |
+| 19 | UI per PRD §9 | B | ✅ Done |
 | 20 | Golden set (200) + evaluation report | B | ⬜ |
 | 21 | Documents + deliverables | B | ⬜ |
 | 22 | Release (test, push, Render redeploy) | B | ⬜ |
@@ -505,9 +505,28 @@ is one retrievable card that names its scheme, plan and source date.
   cards; Groww wording removed.
 - **No transaction CTAs.** Accessibility labels on chips and links.
 
+**As built (2026-10-03)**
+- PRD §9 copy verbatim: welcome line, the three example chips, "Facts-only. No
+  investment advice." pinned in a sticky header (and in the sidebar), input hint.
+- Answer bubble: body, "Source: <readable label> ↗" (new tab, `aria-label`), then
+  "Last updated from sources: DD Mon YYYY" in secondary text.
+- PII block state: inline warning (FR-11 text + Groww help link) above the input;
+  the message is not shown or kept in the chat history; the input is cleared.
+- Clarify replies render the scheme chips as buttons that re-ask the question for
+  the chosen fund. An ambiguous name the user types is not resolved from earlier
+  chat context (only an explicit selection or chip settles it).
+- Feedback: `st.feedback` thumbs on each answer; 👎 offers an optional reason
+  (Wrong / Outdated / Not helpful); session state only (Addendum A3).
+- A1 extras kept and fed by the official cards: fund cards (NAV, Direct TER), fact
+  sheet (tiles shortened from the official values, lock-in row, asset mix "from the
+  factsheet's portfolio subtotals", top holdings), source = the scheme page label.
+  Groww wording removed; footer: official sources, not affiliated.
+- No transaction CTAs. Buttons carry `help` text; links carry `aria-label`.
+- `scripts/test_ui.py` (Streamlit AppTest, offline generator): 15/15.
+
 **Done when**
-- [ ] Headless UI test checks every §9 element
-- [ ] No "Groww" source wording remains
+- [x] Headless UI test checks every §9 element
+- [x] No "Groww" source wording remains
 
 ---
 

@@ -30,7 +30,13 @@ from src.rag.generate import (
 )
 from src.rag.holdings import absence_answer
 from src.rag.retrieve import RetrievedChunk, intent_fields, one_page_covers, retrieve
-from src.schemes import detect_schemes, former_name_used, fuzzy_schemes, short_name
+from src.schemes import (
+    ambiguous_schemes,
+    detect_schemes,
+    former_name_used,
+    fuzzy_schemes,
+    short_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,10 +71,15 @@ def ask(
     matched = fuzzy[0] if len(fuzzy) == 1 else None
     pick = matched or selected_scheme
     # Carry the fund over only for questions naming none.
-    carried = (
-        None if detect_schemes(message)
-        else context.resolve(message, history, pick).carried_scheme
-    )
+    carried = None
+    if not detect_schemes(message):
+        early = context.resolve(message, history, pick)
+        carried = early.carried_scheme
+        # An ambiguous name the user just typed ("HDFC cap fund") is asked about with
+        # chips; only an explicit selection (left panel or a chip) settles it, not a
+        # fund mentioned earlier in the chat.
+        if early.carried_from == "chat" and ambiguous_schemes(message):
+            carried = None
     decision = run_guards(message, context_scheme=carried)
     if not decision.allowed:
         return Answer(decision.payload, None, decision.query)
