@@ -8,3 +8,5 @@ data/chroma/
 .pytest_cache/
 data/debug/
 .cache/
+# Local backup of an earlier problem statement (not part of the project)
+docs/problemstatement copy.txt

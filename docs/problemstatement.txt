@@ -1,16 +1,12 @@
 Mutual Fund FAQs (Facts-Only Q&A)
 Milestone brief
+Refer to docs/PRD.md (PRD: Facts-Only Mutual Fund FAQ Assistant) for detailed requirements, including the ~22-page official corpus.
 Build a small FAQ assistant that answers facts about mutual fund schemes—e.g., expense ratio, exit load, minimum SIP, lock-in (ELSS), riskometer, benchmark, and how to download statements—using only official public pages. Every answer must include one source link. No advice.
 Who this helps
 Retail users comparing schemes; support/content teams answering repetitive MF questions.
 What you must build
 Scope your corpus: Pick one AMC and 3–5 schemes under it (e.g., one large-cap, one flexi-cap, one ELSS).
 Collect the public pages as mentioned below public pages from AMC/SEBI/AMFI (factsheets, KIM/SID, scheme FAQs, fee/charges pages, riskometer/benchmark notes, statement/tax-doc guides).
-Large Cap: https://groww.in/mutual-funds/hdfc-large-cap-fund-direct-growth
-Flexi Cap: https://groww.in/mutual-funds/hdfc-equity-fund-direct-growth
-ELSS: https://groww.in/mutual-funds/hdfc-elss-tax-saver-fund-direct-plan-growth
-Small Cap: https://groww.in/mutual-funds/hdfc-small-cap-fund-direct-growth
-Balanced Advantage (Hybrid): https://groww.in/mutual-funds/hdfc-balanced-advantage-fund-direct-growth
 FAQ assistant (working prototype):
 Answers factual queries only (e.g., “Expense ratio of ?”, “ELSS lock-in?”, “Minimum SIP?”, “Exit load?”, “Riskometer/benchmark?”, “How to download capital-gains statement?”).
 Shows one clear citation link in every answer.

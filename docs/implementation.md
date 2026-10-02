@@ -1,479 +1,467 @@
 # Implementation guide (phase-wise)
 
-**Product:** Mutual Fund FAQ RAG Chatbot  
-**Follow:** [architecture.md](./architecture.md) (source of truth for design)  
-**Also:** [PRD.md](./PRD.md) (product rules)  
-**How to use:** One phase per Cursor chat (or `/clear` between phases). Paste the **Cursor prompt** for that phase. Do not skip ahead. Do not implement later phases “while you’re at it.”
+**Product:** Facts-Only Mutual Fund FAQ Assistant (HDFC MF), a RAG chatbot
+**Requirements:** [PRD.md](./PRD.md) (PRD: Facts-Only Mutual Fund FAQ Assistant, 2 Oct 2026, incl. its owner-decision Addendum) · brief: [problemstatement.txt](./problemstatement.txt)
+**Design:** [architecture.md](./architecture.md)
+**Status (2 Oct 2026):** Part A is built and deployed (Groww corpus). Part B aligns the
+product with the new PRD (official ~22-page corpus); Phase 11 is done, Phases 12–22 are next.
+
+**How to use:** one phase per assistant session (or clear context between phases).
+Paste the phase's **Prompt**. Do not skip ahead, and do not implement later phases
+"while you're at it". If a phase fails (e.g. an official PDF is blocked), stay in
+that phase: fix the loader/registry, record the gap, then continue.
 
 ---
 
 ## Rules for every phase
 
-- Stay inside the file list and acceptance checks for **this phase only**.  
-- Ingest (`src/ingest/`) and retrieve (`src/rag/`) stay **separate packages**.  
-- Public AMC / SEBI / AMFI URLs are citations; Groww URLs are scheme **seeds** only unless architecture known-limit applies.  
-- No live web agent on each user query.  
-- No PII stored. No returns math. No investment advice.  
-- Python 3.11+, `sentence-transformers/all-MiniLM-L6-v2`, ChromaDB, tiny Streamlit or Gradio UI (choose Streamlit unless told otherwise).  
-- Generator: use an env var (e.g. `OPENAI_API_KEY` or local model); document the choice in README only in **Phase 10**. Until then, a stub generator is OK where noted.
+- Stay inside the file list and "Done when" checks for **this phase only**.
+- Ingest (`src/ingest/`) and query path (`src/rag/`, `src/guards/`) stay **separate packages**.
+- **Sources:** only allowlisted official domains are ingested or cited: HDFC MF
+  (`hdfcfund.com`), SEBI (`sebi.gov.in`), AMFI / Mutual Funds Sahi Hai
+  (`amfiindia.com`, `mutualfundssahihai.com`). No third-party blogs, aggregators or news
+  (PRD §4). Groww appears only as two fixed **help** links (PRD Addendum A5), never as a source.
+- **Scope:** 5 schemes, Direct Plan – Growth; the 7 question types (TER, exit load, min
+  SIP, ELSS lock-in, riskometer, benchmark, statement download), plus the extra fields
+  kept by Addendum A1 (NAV, AUM, fund managers, holdings, holdings analysis, glossary,
+  fund-house details).
+- **Every response** (answers and refusals): ≤ 3 sentences, exactly one link from chunk
+  metadata or the fixed link table (never model-generated), and
+  "Last updated from sources: DD Mon YYYY" (PRD §7, FR-5/6).
+- **Intent order:** PII → advice → performance → out-of-scope → fact; when unsure
+  between fact and advice, choose advice (PRD §6).
+- No live web agent per query. No PII stored, logged or sent to the model. No returns
+  math or comparison. No investment advice.
+- Stack: Python 3.12, `sentence-transformers/all-MiniLM-L6-v2` (run via ONNX Runtime),
+  ChromaDB, Streamlit; generator via env (Groq free tier now, Claude if a key is set,
+  extractive fallback).
+- Free-tier limits: evaluation runs locally, never in the Render build; full LLM-graded
+  runs are occasional (Groq daily quota).
 
 ---
 
 ## Phase map
 
-| Phase | Name | RAG stage | Depends on |
+| Phase | Name | Part | Status |
 | --- | --- | --- | --- |
-| 0 | Repo scaffold | — | — |
-| 1 | Source registry | Ingestion prep | 0 |
-| 2 | Loading | Load | 1 |
-| 3 | Chunking | Chunk | 2 |
-| 4 | Embed + Chroma | Embed + store | 3 |
-| 5 | Ingest CLI | Wire ingestion | 4 |
-| 6 | Retrieval | Retrieve | 5 |
-| 7 | Guards | App safety | 0 (can parallel after 0; wire in 8) |
-| 8 | Generate + assemble | Generate | 6, 7 |
-| 9 | UI | Query path | 8 |
-| 10 | Deliverables + eval | Milestone wrap | 9 |
+| 0 | Repo scaffold | A | ✅ Built |
+| 1 | Source registry | A | ✅ Built (now superseded by 12) |
+| 2 | Loading | A | ✅ Built |
+| 3 | Chunking | A | ✅ Built |
+| 4 | Embed + Chroma | A | ✅ Built |
+| 5 | Ingest CLI | A | ✅ Built |
+| 6 | Retrieval | A | ✅ Built |
+| 7 | Guards | A | ✅ Built |
+| 8 | Generate + assemble | A | ✅ Built |
+| 9 | UI | A | ✅ Built |
+| 10 | Deliverables + eval | A | ✅ Built |
+| A+ | Later work (Groww corpus, fact cards, holdings, context memory, UI redesign, Render deploy) | A | ✅ Built |
+| 11 | Docs baseline for the new PRD | B | ✅ Done |
+| 12 | Official source registry (~22 pages) | B | ⬜ Next |
+| 13 | Loading official sources | B | ⬜ |
+| 14 | Chunking official documents | B | ⬜ |
+| 15 | Intent + guards per PRD §6 | B | ⬜ |
+| 16 | Retrieval re-tune | B | ⬜ |
+| 17 | Response template + validator | B | ⬜ |
+| 18 | Freshness + refresh | B | ⬜ |
+| 19 | UI per PRD §9 | B | ⬜ |
+| 20 | Golden set (200) + evaluation report | B | ⬜ |
+| 21 | Documents + deliverables | B | ⬜ |
+| 22 | Release (test, push, Render redeploy) | B | ⬜ |
 
-Suggested Cursor sequence: **0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10**.  
-Phase 7 may be implemented right after Phase 0 if you want guards done before RAG, but **do not wire them into the chat path until Phase 8**.
-
----
-
-## Phase 0 — Repo scaffold
-
-**Goal:** Empty Python app layout, dependencies, gitignore. No fetching, no Chroma, no UI logic.
-
-**Create**
-
-- `README.md` (title + “setup coming in Phase 10” only)  
-- `requirements.txt`  
-- `.gitignore` (`data/chroma/`, `data/raw/`, `.venv/`, `__pycache__/`, `.env`)  
-- `.env.example` (`OPENAI_API_KEY=` or whichever generator you pick later)  
-- Packages: `src/ingest/`, `src/rag/`, `src/guards/`, `src/app/` with `__init__.py`  
-- `scripts/` folder  
-
-**Do not:** ingest data, write loaders, Streamlit app, or sample Q&A content.
-
-### Cursor prompt — Phase 0
-
-```
-Implement Phase 0 only from docs/implementation.md, following docs/architecture.md §10–§11.
-
-Create a Python 3.11+ project scaffold for a local RAG chatbot:
-- requirements.txt with placeholders we will use later: httpx, beautifulsoup4, pypdf, sentence-transformers, chromadb, streamlit, python-dotenv
-- .gitignore for venv, chroma, raw cache, .env, pycache
-- .env.example
-- Empty packages: src/ingest, src/rag, src/guards, src/app (each with __init__.py)
-- scripts/ empty except a .gitkeep if needed
-- README.md: project name “Mutual Fund FAQ RAG Chatbot” and say full setup is Phase 10
-
-Do not implement loading, chunking, embeddings, Chroma, guards, or UI.
-Stop when the tree exists and pip-install would work for listed packages.
-```
-
-**Done when**
-
-- [ ] Layout matches architecture §10  
-- [ ] No ingestion or chat code yet  
+Sequence for Part B: **12 → 13 → 14 → 15 → 16 → 17 → 18 → 19 → 20 → 21 → 22**.
+Phase 15 (guards) may run in parallel with 13–14; wire it into the chat path in 17.
 
 ---
 
-## Phase 1 — Source registry
+# Part A: built so far (as-built record)
 
-**Goal:** Curated URL list for the five HDFC schemes. Official pages for ingest; Groww listed as seeds.
+These phases were implemented between 27 Sep and 2 Oct 2026. Each entry states what
+the phase delivered as built, so later phases start from facts, not from the
+original plan. Detailed evidence is in [eval_notes.md](./eval_notes.md).
 
-**Create**
+## Phase 0: Repo scaffold ✅
 
-- `data/sources.csv` columns: `url`, `scheme`, `doc_type`, `role` (`seed` | `ingest`), `fetched_at` (empty until ingest)  
-- `data/schemes.md` — the five schemes + Groww seed URLs from the PRD  
-- Allowed `doc_type` values: `factsheet`, `kim`, `sid`, `faq`, `charges`, `riskometer`, `statement_guide`  
-- At least one **ingest** URL per scheme from official HDFC AMC / AMFI / SEBI (factsheet or KIM/SID/FAQ). Plus one statement/tax-doc **official** guide if available.  
-- One stable **educational** official URL for advice refusals (AMFI investor education or similar).  
+- Packages `src/ingest/`, `src/rag/`, `src/guards/`, `src/app/` (+ `src/schemes.py`
+  shared scheme names and aliases), `scripts/`, `README.md`, `requirements.txt`
+  (pinned), `.gitignore` (`.venv/`, `data/raw/`, `data/chroma/`, `data/debug/`,
+  `.cache/`, `.env`), `.env.example`.
 
-**Do not:** fetch pages or parse HTML yet.
+## Phase 1: Source registry ✅ (superseded by Phase 12)
 
-### Cursor prompt — Phase 1
+- `data/sources.csv` (`url, scheme, doc_type, role, fetched_at`) and `data/schemes.md`.
+- First built with 19 official HDFC/AMFI/SEBI pages; switched on 27 Sep to the five
+  Groww scheme pages (`role=ingest`) plus two `role=reference` refusal links. Phase 12
+  replaces this with the PRD's official corpus.
 
-```
-Implement Phase 1 only from docs/implementation.md. Read docs/architecture.md §2, §9 and docs/PRD.md §5.
+## Phase 2: Loading ✅
 
-Create data/schemes.md listing the five HDFC schemes and their Groww seed URLs (role=seed, not for citation).
+- `src/ingest/load.py`: fetches `role=ingest` rows, caches raw bytes in `data/raw/`,
+  HTML main-text and PDF text extraction, host allowlist, per-URL error collection,
+  `fetched_at` from cache date.
+- Groww cleanup `_clean_groww` (strips menus, footer, returns, rankings, star rating).
+- Browser-like User-Agent (`files.hdfcfund.com` rejects bot UAs; owner-approved).
 
-Create data/sources.csv with columns: url, scheme, doc_type, role, fetched_at
-- role=seed for the five Groww URLs
-- role=ingest for official HDFC AMC / SEBI / AMFI pages only (factsheets, KIM/SID, FAQs, charges, riskometer/benchmark, statement guides)
-- Include at least one ingest URL per scheme
-- Include one official statement/capital-gains download guide if publicly available
-- Include one official educational URL for advice-refusal (document which row)
+## Phase 3: Chunking ✅
 
-Do not fetch or download. Do not write loaders. Look up real public official URLs; if a page cannot be confirmed, mark it in a “known gaps” note in data/schemes.md rather than inventing a URL.
-```
+- `src/ingest/chunk.py`: heading-aware recursive split (1,600–3,200 chars, ~12%
+  overlap), table cohesion, factsheet fund-page attribution, field-level chunks,
+  footnote attachment, for official documents.
+- `src/ingest/groww.py`: **fact cards** (one self-contained card per field, plus an
+  overview card) for Groww pages, incl. holdings lists and calculated holdings
+  analysis (asset mix, instrument type, sector).
 
-**Done when**
+## Phase 4: Embed + Chroma ✅
 
-- [ ] Five seeds + ingest rows with real official URLs  
-- [ ] CSV is the only input the loader will read later  
+- `src/ingest/embed.py`: MiniLM via its official ONNX export (PyTorch is blocked by
+  Windows Application Control on the dev machine); 384-dim, normalized.
+- `src/ingest/store.py`: persistent Chroma at `data/chroma/`, collection
+  `hdfc_mf_faq`, cosine space, rebuilt idempotently, telemetry off.
+  `src/ingest/chroma_compat.py` lets Chroma import when grpcio's DLL is blocked.
 
----
+## Phase 5: Ingest CLI ✅
 
-## Phase 2 — Loading
+- `scripts/ingest.py`: load → chunk → embed → store; writes `fetched_at` back;
+  `--refresh` (re-download) and `--strict` (fail the build on missing pages or core
+  facts; used by the Render build).
 
-**Goal:** Fetch and parse registry URLs (`role=ingest` only) into normalized documents.
+## Phase 6: Retrieval ✅
 
-**Create**
+- `src/rag/retrieve.py`: query expansion (everyday terms → document terms), scheme
+  filter, **field routing** (filtered search on the card fields a question asks for),
+  exact holdings name lookup, `TOP_K=8`, `MIN_SCORE=0.35`.
 
-- `src/ingest/load.py`  
-- Optional cache under `data/raw/` (gitignored)  
-- Function: `load_documents(sources_csv) -> list[Document]` each with `text`, `url`, `scheme`, `doc_type`, `fetched_at`  
-- HTML: extract main text, strip nav  
-- PDF: extract text  
-- Skip `role=seed`  
-- Skip empty fetches; log failures (do not crash the whole run unless all fail)  
-- Allowed domains only (hdfcfund / sebi / amfi and others you listed as official in Phase 1)
+## Phase 7: Guards ✅
 
-**Do not:** chunk, embed, or write Chroma.
+- `src/guards/`: `pii.py` (redact + warn), `advice.py`, `performance.py` (factsheet
+  link), `scope.py` (other AMCs, non-MF products, live data), `about.py` ("which funds
+  can you access?"), `clarify.py` ("which fund do you mean?"), `pipeline.py` (order:
+  PII → advice → performance → scope → about → clarify → allow).
 
-### Cursor prompt — Phase 2
+## Phase 8: Generate + assemble ✅
 
-```
-Implement Phase 2 only from docs/implementation.md. Follow docs/architecture.md §4.1 Loading and §3 Loader.
+- `src/rag/generate.py`: Groq (`openai/gpt-oss-120b`, strict JSON schema), Claude when a
+  key is set, extractive fallback; 3-sentence cap; number-grounding check
+  (`UngroundedNumberError`).
+- `src/rag/assemble.py`: one citation from the cited chunk; honest miss / ungrounded /
+  error replies linking the fund in context.
+- `src/rag/pipeline.py`, `src/rag/holdings.py` (definite "not among the N holdings"),
+  `src/rag/context.py` (last 25 exchanges; fund and topic carry-over).
 
-Write src/ingest/load.py:
-- Read data/sources.csv
-- Fetch only rows with role=ingest
-- Parse HTML (main content) or PDF
-- Return documents with text, url, scheme, doc_type, fetched_at (ISO date)
-- Cache raw bytes under data/raw/ keyed by URL hash
-- On fetch failure: skip that URL, collect errors; never index empty text
-- Do not fetch Groww seed URLs
+## Phase 9: UI ✅
 
-No chunking, embeddings, or Chroma. Add a tiny `if __name__` or pytest that loads one URL and prints char count (optional).
-```
+- `src/app/main.py` ("Mutual Funds FAQ"): left scheme panel, fund cards with live NAV
+  and TER, fact sheet (tiles, asset-mix bar, top holdings), quick-question pills, chat
+  bubbles, staleness banner, disclaimer footer. `src/rag/facts.py` reads the cards.
 
-**Done when**
+## Phase 10: Deliverables + eval ✅
 
-- [ ] At least one official HTML or PDF yields non-empty text locally  
-- [ ] Seeds are never fetched  
+- `README.md`, `docs/sample_qa.md` (`scripts/make_sample_qa.py`),
+  `docs/eval_notes.md` (Rounds 1–8), `scripts/eval_gold.py` (20-question gold set,
+  50-question fund × field matrix; volatile figures checked against current cards),
+  `scripts/debug_guards.py` (58 cases), `scripts/debug_chat.py` (8-turn conversation).
 
----
+## Later work (A+) ✅
 
-## Phase 3 — Chunking
-
-**Goal:** Split documents per architecture §5.
-
-**Create**
-
-- `src/ingest/chunk.py`  
-- Recursive + heading-aware split  
-- ~400–800 tokens (use ~1,600–3,200 characters as proxy), 10–15% overlap  
-- Separators: `\n## `, `\n# `, `\n\n`, `\n`, `. `, space  
-- Tables: keep fee tables in one chunk when possible; if split, repeat headers  
-- Each chunk metadata: `chunk_id` (hash of url + start offset), `url`, `scheme`, `doc_type`, `section_title`, `fetched_at`, `amc=HDFC`
-
-**Do not:** embed or store.
-
-### Cursor prompt — Phase 3
-
-```
-Implement Phase 3 only from docs/implementation.md. Follow docs/architecture.md §5 exactly.
-
-Write src/ingest/chunk.py that takes loaded documents and returns chunks with text + metadata:
-chunk_id, url, scheme, doc_type, section_title, fetched_at, amc=HDFC
-
-Use heading-aware recursive character split, 1600–3200 chars, 10–15% overlap, separators as in architecture §5.
-Preserve table cohesion for expense ratio / SIP / exit load sections.
-
-No embeddings or Chroma. Include a small debug print: chunk count per URL.
-```
-
-**Done when**
-
-- [ ] Chunks have all metadata fields  
-- [ ] Typical factsheet is not a single giant chunk and not sentence-shredded  
+- Render free-plan deployment: `render.yaml` (build runs `ingest.py --refresh
+  --strict`), `.github/workflows/refresh-data.yml` (daily redeploy via deploy hook).
+- Repo: https://github.com/ngm76/HDFC-chatbot.
 
 ---
 
-## Phase 4 — Embedding + Chroma store
+# Part B: align with the new PRD (official corpus)
 
-**Goal:** MiniLM embeddings persisted in Chroma.
+## Phase 11: Docs baseline for the new PRD ✅
 
-**Create**
+**Goal:** make the new PRD the requirements baseline.
 
-- `src/ingest/embed.py` — `sentence-transformers/all-MiniLM-L6-v2`, 384-dim; reuse one model instance  
-- `src/ingest/store.py` — persistent Chroma at `data/chroma/`, collection `hdfc_mf_faq`  
-- Idempotent rebuild: delete collection or upsert by `chunk_id`  
-- Store documents, embeddings, metadatas, ids=`chunk_id`
-
-**Do not:** query-path retriever or LLM.
-
-### Cursor prompt — Phase 4
-
-```
-Implement Phase 4 only from docs/implementation.md. Follow docs/architecture.md §4.1 Embedding and Store, §11.
-
-Write src/ingest/embed.py using sentence-transformers/all-MiniLM-L6-v2.
-Write src/ingest/store.py: Chroma persistent client, path data/chroma/, collection hdfc_mf_faq.
-Rebuild must be idempotent (wipe or upsert by chunk_id).
-Do not implement the user-query retriever yet (that is Phase 6).
-Do not call an LLM.
-```
+- `docs/PRD.md` mirrors the PDF PRD section by section, plus an owner-decision Addendum (A1–A7).
+- `docs/problemstatement.txt` points to `docs/PRD.md` for details.
+- `docs/problemstatement copy.txt` is a local backup, git-ignored.
 
 **Done when**
-
-- [ ] Can write a few dummy chunks and reopen Chroma from disk  
-- [ ] Collection name and path match architecture  
+- [x] PRD.md contains §1–§12 and FR-1–FR-15 of the PDF
+- [x] Addendum records decisions A1–A7
+- [x] Problem statement points to the PRD
 
 ---
 
-## Phase 5 — Ingest CLI (wire ingestion)
+## Phase 12: Official source registry (~22 pages)
 
-**Goal:** One command runs Loading → Chunking → Embedding → Store and updates `fetched_at` in the source list.
+**Goal:** a verified list of ~22 official pages following PRD §4's allocation.
 
-**Create**
+**PRD:** §4 (corpus table, allowlist), §12 deliverable 2 (source-list columns), Addendum A5.
 
-- `scripts/ingest.py`  
-- Orchestrate `load → chunk → embed → store`  
-- Update `data/sources.csv` `fetched_at` for successful URLs  
-- Print summary: URLs ok/fail, chunk count  
-- README one-liner: `python scripts/ingest.py` (full README still Phase 10)
+**Create / change**
+- `data/sources.csv` with columns `url, publisher, doc_type, scheme, question_types,
+  freshness_limit_days, role, fetched_at`.
+- `role`: `ingest` for the corpus, `help` for the two Groww help links (PII block →
+  `https://groww.in/help/mutual-funds`, non-MF → `https://groww.in/help`).
+- Corpus allocation, each URL verified from Python:
 
-**Do not:** chat UI or generation.
+  | Publisher | Documents | Pages |
+  |---|---|---|
+  | HDFC MF | Scheme pages | 5 |
+  | HDFC MF | KIM / SID | 5 |
+  | HDFC MF | Current monthly factsheet | 1 |
+  | HDFC MF | TER disclosure | 1 |
+  | HDFC MF | Account and capital-gains statement pages | 2 |
+  | SEBI | Riskometer circular | 1 |
+  | SEBI | Investor education | 2 |
+  | AMFI / Mutual Funds Sahi Hai | Education | 5 |
 
-### Cursor prompt — Phase 5
+- Freshness limits: TER 7 days, factsheet 35, KIM/SID 180, others as documented.
+- `data/schemes.md`: canonical names, former names and aliases (HDFC Top 100, HDFC
+  Equity Fund, HDFC Taxsaver), per-URL notes, known gaps.
+- Remove the Groww scheme URLs.
 
+**Do not:** change loaders, chunkers or the app.
+
+**Prompt**
 ```
-Implement Phase 5 only from docs/implementation.md. Follow docs/architecture.md §4.1 full pipeline.
-
-Write scripts/ingest.py that runs load → chunk → embed → store from existing src/ingest modules.
-Rebuild Chroma idempotently.
-Update fetched_at in data/sources.csv for successful ingest URLs.
-Print a summary. Do not add Streamlit or RAG query code.
-After implementing, run ingest once if network allows; if fetch fails, document failed URLs in the summary output.
+Implement Phase 12 only from docs/implementation.md, following docs/PRD.md §4 and §12.
+Find and verify (fetch from Python with the project's loader settings) ~22 official
+URLs per the allocation table. For each, record what text it yields and which of the
+7 question types it answers. Write data/sources.csv with the new columns and
+data/schemes.md. Never invent a URL: list unconfirmed pages as known gaps.
 ```
 
 **Done when**
-
-- [ ] `python scripts/ingest.py` produces a non-empty `hdfc_mf_faq` collection  
-- [ ] Both RAG **ingestion** stages exist as code, not comments  
+- [ ] 20–25 `ingest` rows, all on the allowlist, each fetched successfully at least once
+- [ ] Every one of the 7 question types is answered by at least one row, for each scheme where applicable
+- [ ] Two `help` rows; no Groww scheme pages
 
 ---
 
-## Phase 6 — Retrieval
+## Phase 13: Loading official sources
 
-**Goal:** Query embedding + top-k from Chroma (+ optional scheme filter).
+**Goal:** load the official corpus reliably.
 
-**Create**
+**PRD:** §4 allowlist, §8 stale data (keep the last good version), §11 (PDF parsing risk).
 
-- `src/rag/retrieve.py`  
-- Same MiniLM model as ingest  
-- `k=5` (config constant; comment that 3–8 is allowed)  
-- Similarity floor: if top distance/score is too weak, return empty (tune constant; document it)  
-- If query names one of the five schemes, Chroma `where` filter on `scheme`  
-- If two schemes named: no filter (or two searches); never compare returns here  
-- Return list of `{text, url, section_title, scheme, fetched_at, score}`
+**Create / change**
+- `src/ingest/load.py`:
+  - allowlist adds `mutualfundssahihai.com`; Groww removed from ingest hosts
+  - HTML and PDF paths re-validated on the new pages
+  - keep the last good cached copy when a fetch fails and report it, instead of dropping the page
+  - Groww cleanup disabled (code kept, unused)
+- `scripts/ingest.py --strict`: required-page and required-field checks for the official corpus.
 
-**Do not:** LLM generate or UI.
-
-### Cursor prompt — Phase 6
-
-```
-Implement Phase 6 only from docs/implementation.md. Follow docs/architecture.md §4.2 and §6.
-
-Write src/rag/retrieve.py:
-- Embed the query with the same MiniLM model as ingest
-- Query Chroma collection hdfc_mf_faq, k=5
-- Apply scheme metadata filter when the query names one of the five HDFC schemes
-- If similarity is below a documented floor, return no chunks
-- Return chunk text + url + section_title + scheme + fetched_at + score
-
-Add a small scripts/debug_retrieve.py that prints top chunks for:
-“What is the expense ratio of HDFC Large Cap Fund Direct Growth?”
-
-No LLM and no Streamlit.
-```
+**Do not:** chunk or change retrieval.
 
 **Done when**
-
-- [ ] Debug retrieve prints real chunks with official `url`s after ingest  
-- [ ] Empty result path exists for weak scores  
+- [ ] All `ingest` rows load, or fall back to their last good copy with a warning
+- [ ] `--strict` fails on a missing page and passes on the full corpus
 
 ---
 
-## Phase 7 — Guards
+## Phase 14: Chunking official documents
 
-**Goal:** Deterministic advice / performance / PII / out-of-scope checks.
+**Goal:** a data-driven chunking strategy per document type, so each supported fact
+is one retrievable card that names its scheme, plan and source date.
 
-**Create**
+**PRD:** §4 question types, §8 (tiered exit loads, Direct vs Regular), §11 (wrong-scheme chunks).
 
-- `src/guards/advice.py`  
-- `src/guards/performance.py`  
-- `src/guards/pii.py`  
-- `src/guards/scope.py` (other AMC / holdings)  
-- `src/guards/pipeline.py` — ordered: PII warn+redact → advice → performance → scope → `allow`  
-- Return the same answer payload shape as architecture §7 (`text`, `source_url`, `last_updated_from_sources`, `refusal`, `refusal_reason`)  
-- Advice: polite facts-only + educational official URL from sources.csv  
-- Performance: no compute; factsheet URL for named scheme or AMC hub  
-- PII: regex for PAN, Aadhaar, account-like numbers, OTP, email, phone; **never log raw**; redact before any debug print  
-
-**Do not:** call retriever or LLM.
-
-### Cursor prompt — Phase 7
-
-```
-Implement Phase 7 only from docs/implementation.md. Follow docs/architecture.md §8 and §7 payload.
-
-Create src/guards/advice.py, performance.py, pii.py, scope.py, and pipeline.py.
-Order: PII (warn, redact, do not store) → advice refusal → performance (no returns math, factsheet link) → out of corpus → allow.
-
-Use the educational URL and factsheet URLs from data/sources.csv.
-Return dict: text, source_url, last_updated_from_sources, refusal, refusal_reason.
-
-Add tests or a small scripts/debug_guards.py covering:
-- “Should I buy HDFC Small Cap?”
-- “Which fund had better returns?”
-- A message containing a fake PAN-like string (ensure it is not printed in full)
-
-Do not call Chroma or an LLM.
-```
+**Create / change**
+- `src/ingest/chunk.py` + a new official-document card builder:
+  - **scheme pages:** fact cards for TER (Direct and Regular), exit load, min SIP, riskometer, benchmark, plus A1 extras (AUM, managers)
+  - **KIM / SID:** exit load (incl. tiers), min SIP, **ELSS lock-in** (3 years, SIP instalments locked separately)
+  - **factsheet:** per-fund NAV with "as on" date, TER, AUM, holdings and holdings analysis (A1)
+  - **TER disclosure:** TER per scheme and plan
+  - **statement pages:** step-by-step "how to download" cards
+  - **SEBI / AMFI:** section chunks (riskometer levels, ELSS/SIP basics, education)
+- Card metadata adds `publisher`, `plan`, `doc_date` (the date the document states, if any).
 
 **Done when**
-
-- [ ] Advice never yields a recommendation  
-- [ ] PII is not printed or written to disk  
+- [ ] Each scheme has a card for each of the 7 question types it supports
+- [ ] Spot checks of extracted values against the PDFs pass for all 5 schemes (PRD §11 mitigation)
 
 ---
 
-## Phase 8 — Generate + assemble
+## Phase 15: Intent + guards per PRD §6
 
-**Goal:** Grounded generation and the public answer contract.
+**Goal:** deterministic intent handling exactly as PRD §6 and FR-8–FR-15 specify.
 
-**Create**
-
-- `src/rag/generate.py` — system prompt from architecture §7; context = retrieved chunks with url/section prefixes; max 3 sentences; no advice; no numbers not in context  
-- `src/rag/assemble.py` — one `source_url` (best supporting chunk); `last_updated_from_sources` = max `fetched_at` of chunks sent to the generator  
-- `src/rag/pipeline.py` — guards first; if allow → retrieve → if empty/weak miss message + optional hub URL → else generate → assemble  
-- Weak retrieval: “not in this prototype,” no invented fees  
-- Generator errors: generic safe error, no partial fake fee  
-- Config: model name via env; if no API key, a **dev fallback** that extracts a short quote from top chunk **clearly labeled as extractive fallback** (still 3 sentences max, still one citation)
-
-### Cursor prompt — Phase 8
-
-```
-Implement Phase 8 only from docs/implementation.md. Follow docs/architecture.md §4.2, §7, §12.
-
-Write src/rag/generate.py (grounded LLM, context-only, ≤3 sentences).
-Write src/rag/assemble.py (exactly one citation URL; last_updated_from_sources from chunk fetched_at).
-Write src/rag/pipeline.py: guards → retrieve → generate → assemble.
-Miss/low similarity: do not guess. LLM failure: safe error.
-
-Use env for the generator; document the env var in a comment. If no key, extractive fallback from top chunk (still one URL).
-
-Do not build Streamlit yet. Provide scripts/debug_ask.py that prints the JSON payload for 2 factual questions and 1 advice question.
-```
+**Create / change** (`src/guards/`, `src/schemes.py`)
+- **PII** (FR-10–12): **block** instead of redact-and-answer. Nothing goes to retrieval,
+  the model or logs. Fixed safety message, input cleared, help link
+  `groww.in/help/mutual-funds`. Server-side redaction stays as a backstop. Aadhaar
+  checksum (Verhoeff), 10-digit Indian mobile, PAN, email, OTP, account/folio.
+- **Advice** (FR-8): polite refusal, an offer of the facts we can give, and one
+  AMFI/SEBI education link; mixed messages are handled as advice; bias to advice when unsure.
+- **Performance** (FR-9): refusal with the HDFC factsheet link, no figures.
+- **Out-of-scope** (FR-14):
+  - other AMCs, other schemes, and Regular/IDCW plans get a coverage message + one official link
+  - "scheme not in corpus" links the HDFC MF schemes listing page
+  - A1 extras stay answerable
+- **Non-MF** (FR-15): a one-line redirect with the `groww.in/help` link.
+- **Aliases and fuzzy matching** (FR-2, §8): former names, short forms, misspellings;
+  when two schemes match, return a clarify payload with chips.
+- **Direct plan default** (FR-3).
 
 **Done when**
-
-- [ ] Factual ask returns `text` + one official URL + last-updated  
-- [ ] Advice ask is a refusal without retrieval-based recommendation  
-- [ ] Payload matches architecture §7  
+- [ ] `scripts/debug_guards.py` covers every PRD §6 example and §8 edge case
+- [ ] Refusal recall 100% on the advice/performance cases; PII never reaches retrieval or logs
 
 ---
 
-## Phase 9 — Tiny UI
+## Phase 16: Retrieval re-tune
 
-**Goal:** Streamlit chat matching PRD UX.
+**Goal:** route each supported question to the right official card for the right scheme.
 
-**Create**
+**PRD:** FR-1, FR-7 (most specific page), §8 (conflicting sources, factual comparison), §11.
 
-- `src/app/main.py`  
-- Welcome line  
-- Three example questions (clickable) from PRD appendix  
-- Persistent note: **Facts-only. No investment advice.**  
-- Disclaimer snippet visible (PRD §6.3 intent)  
-- Input → `src/rag/pipeline.py`  
-- Show answer body, source link, last-updated  
-- Session-only chat; no PII persistence  
-- `streamlit run src/app/main.py`
-
-**Do not:** extra pages, auth, or analytics.
-
-### Cursor prompt — Phase 9
-
-```
-Implement Phase 9 only from docs/implementation.md. Follow docs/architecture.md §3 UI and docs/PRD.md §6.
-
-Create src/app/main.py Streamlit app:
-- Welcome line
-- Three example questions (PRD appendix) that fill/submit the question
-- Always-visible: “Facts-only. No investment advice.”
-- Disclaimer: facts-only, not investment advice, MF subject to market risks, read scheme documents
-- Chat that calls src/rag/pipeline.py
-- Render text, one source URL, “Last updated from sources: …”
-- Session memory only; do not write chats to disk
-
-No new RAG features. No extra multi-page app.
-```
+**Create / change** (`src/rag/retrieve.py`)
+- Routing and synonyms for the 7 types across document types (lock-in → KIM/SID,
+  statements → statement pages, riskometer meaning → SEBI/AMFI).
+- Scheme filter before ranking. Shared documents (statement, SEBI, AMFI) stay reachable.
+- **Conflicts:** prefer the newest dated card; log the conflict.
+- **Factual comparison:** allowed only when one page supports both facts.
+- Re-calibrate `MIN_SCORE` and `TOP_K`.
 
 **Done when**
-
-- [ ] UI matches FR8  
-- [ ] Example question produces a cited answer after ingest  
+- [ ] Fund × field matrix: top-1 correct for all 7 types × 5 schemes
+- [ ] Most-specific-page citation (scheme or TER page over a homepage)
 
 ---
 
-## Phase 10 — Deliverables, README, eval
+## Phase 17: Response template + validator
 
-**Goal:** Milestone wrap + first retrieval eval; tune chunking only with evidence.
+**Goal:** every response follows PRD §7's template, and the validator enforces FR-4.
 
-**Create / update**
-
-- `README.md` — setup, Python version, `python scripts/ingest.py`, `streamlit run …`, AMC + five schemes, generator model name, known limits (failed URLs, Groww vs official, stale factsheets)  
-- `data/sources.csv` final (the “source list”)  
-- `docs/sample_qa.md` — 5–10 queries with assistant answers + links (run the pipeline; do not invent)  
-- Disclaimer text used in UI copied into README  
-- Gold eval notes: expense ratio, SIP, lock-in, exit load, riskometer/benchmark, statement download — pass/fail vs cited page  
-- If tables retrieve badly: **only then** adjust chunker per architecture §5; record what changed  
-
-**Do not:** new AMCs, hybrid search, reranker, or live browse unless gold set fails and architecture allows reranker as last resort.
-
-### Cursor prompt — Phase 10
-
-```
-Implement Phase 10 only from docs/implementation.md. Follow docs/PRD.md §11 and docs/architecture.md §12–§14.
-
-1. Rewrite README.md: setup steps, HDFC + five schemes, how to ingest and run UI, generator choice, known limits.
-2. Run the pipeline (or use last known outputs) to write docs/sample_qa.md with 5–10 real Q&As including source links. Include at least one advice refusal.
-3. Confirm disclaimer in UI matches README.
-4. Add docs/eval_notes.md: gold questions vs retrieved fact; note chunking changes only if needed.
-
-Do not add features beyond eval/docs. Do not expand corpus to other AMCs.
-```
+**Create / change** (`src/rag/generate.py`, `assemble.py`, `pipeline.py`)
+- **Template:** the first sentence names the full scheme and plan; readable source
+  label (e.g. "Source: HDFC Small Cap Fund – scheme page"); freshness line
+  `Last updated from sources: DD Mon YYYY`. Tone rules (no hype words, no first person).
+- **Every response has one link and a freshness line**, including refusals,
+  clarifications and the "about" reply (fixed link table for non-answer responses).
+- **Validator (FR-4):** rejects return figures, recommendation verbs (should / better /
+  best / suitable), more than 3 sentences, or a non-corpus link. It regenerates once,
+  then falls back to the FR-1 "couldn't find in official sources" response.
+  The number-grounding check stays.
+- **Stale sentence (§8):** when the cited page is past its freshness limit, add
+  "Please check the linked page for the latest value" as one of the 3 sentences.
 
 **Done when**
+- [ ] 100% of golden-set responses pass the format validator
+- [ ] A forced bad answer (e.g. containing "best") is regenerated, then falls back
 
-- [ ] README, source list, sample Q&A, disclaimer, known limits exist  
-- [ ] Gold set reviewed; chunking changed only if retrieval failed  
+---
+
+## Phase 18: Freshness + refresh
+
+**Goal:** keep official data current within PRD §8's freshness limits on Render's free plan.
+
+**Create / change**
+- Daily Render redeploy (already in place). Scheme and TER pages are fetched every build.
+- **Factsheet/KIM/SID URLs change with each edition:** a monthly checklist in the
+  README, plus `--strict` flagging missing or stale editions.
+- **Link-health check** (§11): a script that reports 4xx/5xx for every `sources.csv`
+  URL, run in the scheduled workflow.
+- **Keep the last good version** when a fetch fails (Phase 13), with the build log as the alert.
+
+**Done when**
+- [ ] A simulated fetch failure keeps the previous data and reports it
+- [ ] Each answer's freshness line matches its cited page's ingest date
+
+---
+
+## Phase 19: UI per PRD §9
+
+**Goal:** the UI matches PRD §9, keeping the Addendum A1 extras.
+
+**Create / change** (`src/app/main.py`)
+- **Copy and inputs:**
+  - the exact welcome line, the three example chips and the pinned disclaimer from §9
+  - the input hint "Ask a factual question. Don't share PAN, Aadhaar or account details."
+  - **PII block state:** inline warning, input cleared, nothing sent
+- **Answer bubble:** body, a readable source label (opens in a new tab), and the
+  freshness line in secondary text.
+- **Feedback:** 👍 / 👎 with an optional reason (wrong / outdated / not helpful),
+  session-only (Addendum A3).
+- **Kept from A1:** scheme panel, fund cards and fact sheet, fed by the official
+  cards; Groww wording removed.
+- **No transaction CTAs.** Accessibility labels on chips and links.
+
+**Done when**
+- [ ] Headless UI test checks every §9 element
+- [ ] No "Groww" source wording remains
+
+---
+
+## Phase 20: Golden set (200) + evaluation report
+
+**Goal:** the PRD §10 launch gate.
+
+**Create / change**
+- `data/golden_set.csv`: 200 labelled queries (120 fact, 30 advice, 20 performance,
+  15 out-of-scope, 15 PII). Labels: expected intent, expected value (or `card:<field>`
+  for volatile figures), expected source domain or page.
+- `scripts/eval_golden.py`:
+  - a free mode (intent, routing, citation, format; no LLM)
+  - a full mode (answers graded against the cited source)
+- The report covers every §10 metric: factual accuracy, citation correctness, refusal
+  recall/precision, format compliance, PII leakage, fabricated facts.
+
+**Done when**
+- [ ] The free mode runs all 200 in about a minute
+- [ ] The full mode meets the §10 targets: accuracy ≥95%, citations ≥98%, refusal recall ≥99%, precision ≥90%, format 100%, PII 0, fabricated 0
+- [ ] The report is written to `docs/evaluation_report.md`
+
+---
+
+## Phase 21: Documents + deliverables
+
+**Goal:** every document matches the built system and the PRD §12 checklist.
+
+**Create / change**
+- `docs/architecture.md`: corpus and allowlist, per-document chunking, field routing,
+  intent order, response template and validator, conversation context, freshness,
+  UI, deployment.
+- `README.md`: architecture summary, setup, how to re-ingest, **how to add a scheme
+  alias**, **how to run the golden-set evaluation**, known limitations, disclaimer.
+- `data/sources.csv` as the source-list deliverable.
+- `docs/sample_qa.md`: at least 2 examples per intent, plus every §8 edge case.
+- `docs/eval_notes.md`: a new round, linking to the evaluation report.
+- `.env.example` and `render.yaml` if the build changes.
+
+**Done when**
+- [ ] All six PRD §12 deliverables exist and are consistent with each other
+
+---
+
+## Phase 22: Release
+
+**Goal:** ship the aligned version.
+
+- Run the guard tests, matrix, golden set (free mode, then one full run) and the headless UI test.
+- Commit and push; Render redeploys (or Manual Deploy → latest commit).
+- On the live URL, check the three example chips, one question per intent, and a PII block.
+
+**Done when**
+- [ ] The live app passes the spot checks, and the build log shows the full official corpus loaded
 
 ---
 
 ## Copy-paste cheat sheet
 
-| You say to Cursor | Meaning |
+| You say to the assistant | Meaning |
 | --- | --- |
 | `Implement Phase N only from docs/implementation.md` | Scope lock |
-| `Follow docs/architecture.md` | Design lock |
+| `Follow docs/PRD.md and docs/architecture.md` | Requirements + design lock |
 | `Do not start Phase N+1` | Stop condition |
-
-If a phase fails (e.g. official PDF blocked), stay in that phase: fix loader/registry, list the gap, then continue. Do not skip to UI with an empty index.
 
 ---
 
-## Definition of “implementation complete”
+## Definition of "implementation complete"
 
 All of:
 
-1. Ingest CLI rebuilds Chroma from `data/sources.csv`.  
-2. Chat UI answers in-scope facts with ≤3 sentences, one official link, last-updated.  
-3. Advice and returns questions are refused in **code** (guards), not only in the prompt.  
-4. README + sample Q&A + source list + disclaimer match the PRD deliverables.
+1. `scripts/ingest.py --refresh --strict` rebuilds Chroma from the ~22 official pages in
+   `data/sources.csv` (no third-party sources).
+2. Every response follows PRD §7: ≤ 3 sentences, exactly one allowlisted link,
+   "Last updated from sources: DD Mon YYYY".
+3. The 7 supported question types are answered for all 5 schemes; advice, performance,
+   PII, out-of-scope and non-MF messages are handled in **code** per PRD §6.
+4. The golden set (200) meets the PRD §10 launch targets, with the report in `docs/`.
+5. The PRD §12 deliverables exist and match the built system; deviations are listed in the PRD Addendum.

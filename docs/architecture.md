@@ -1,21 +1,38 @@
-# Architecture  
-**Product:** Mutual Fund FAQ RAG Chatbot  
-**Based on:** [PRD.md](./PRD.md) v1.0  
-**Version:** 1.0  
-**Last updated:** 2026-09-27  
+# Architecture
 
-This document specifies how the prototype is built: ingestion, retrieval, generation, safety, and UI. Product rules (facts-only, citations, PII, no returns math) live in the PRD; this file is the system design that implements them.
+**Product:** Facts-Only Mutual Fund FAQ Assistant (HDFC MF), a RAG chatbot
+**Based on:** [PRD.md](./PRD.md) (PRD: Facts-Only Mutual Fund FAQ Assistant, 2 Oct 2026) incl. its owner-decision Addendum (A1–A7)
+**Plan:** [implementation.md](./implementation.md) (phases referenced below)
+**Version:** 2.0 · **Last updated:** 2026-10-02
+
+This document is the system design that implements the PRD: ingestion, retrieval,
+generation, safety, conversation context, UI, freshness and deployment. Product rules
+live in the PRD; this file says how they are built.
+
+**Status legend:** ✅ built (Part A, running today) · ⬜ planned (Part B, with its
+implementation phase). Today the deployed system runs on the five Groww pages
+(Part A); Part B moves it to the PRD's official ~22-page corpus.
 
 ---
 
 ## 1. Design principles
 
-1. **Indexed RAG, not live browse.** v1 loads a curated public corpus once (rebuildable), then answers from ChromaDB. No per-query web agent.  
-2. **Both RAG stages are first-class:** data **ingestion** and data **retrieval**.  
-3. **Grounded generation.** The LLM may only use retrieved chunks. Weak retrieval → no invented fees.  
-4. **Safety in the application layer.** Advice, returns-comparison, and PII handling are deterministic checks, not model-only promises.  
-5. **One citation per answer.** The URL of the best supporting chunk (prefer official AMC / SEBI / AMFI over Groww seed pages).  
-6. **Rebuildable corpus.** Every ingested document has a public URL and fetch/ingest date listed in the source list.
+1. **Indexed RAG, not live browse.** A curated corpus is ingested at build time and
+   answered from ChromaDB. No per-query web fetching.
+2. **Official sources only.** Only allowlisted domains are ingested or cited: HDFC MF,
+   SEBI, AMFI / Mutual Funds Sahi Hai (PRD §4). Groww appears only as two fixed help links (A5). ⬜ Phase 12–13
+3. **Safety before retrieval.** PII, advice, performance and scope are decided by
+   deterministic code in a fixed precedence order (PRD §6), not by the model.
+4. **Grounded, validated generation.** The model sees only retrieved cards. Code
+   enforces the PRD's response rules: ≤ 3 sentences, numbers present in the sources,
+   banned words, one allowlisted link.
+5. **One link and one freshness line on every response**, including refusals (PRD §7, FR-5/6).
+6. **Data-driven chunking.** Each supported fact becomes one self-contained "fact card"
+   that names its scheme, so a question retrieves exactly that fact.
+7. **Rebuildable and fresh.** Every document has a URL, publisher and ingest date. The
+   index is rebuilt on every deploy and refreshed daily; stale facts are flagged.
+8. **Both RAG stages are explicit:** `src/ingest/` (Loading → Chunking → Embedding →
+   Store) is separate from the query path (`src/guards/`, `src/rag/`).
 
 ---
 
@@ -23,295 +40,451 @@ This document specifies how the prototype is built: ingestion, retrieval, genera
 
 ```mermaid
 flowchart LR
-  User[Retail user / support]
-  UI[Tiny chat UI]
-  App[Chat API + guards]
-  RAG[RAG retrieve + generate]
-  Chroma[(ChromaDB)]
-  Corpus[Public pages / PDFs]
-  Official[AMC / SEBI / AMFI]
-  Seeds[Groww seed URLs]
+  User[Retail investor / support / content team]
+  UI[Streamlit UI<br/>Mutual Funds FAQ]
+  Guards[Intent + guards]
+  RAG[Context → retrieve → generate → validate → assemble]
+  Chroma[(ChromaDB<br/>fact cards)]
+  LLM[Groq gpt-oss-120b<br/>or Claude]
+  Official[Official sources<br/>HDFC MF · SEBI · AMFI / MF Sahi Hai]
+  Ingest[Ingest pipeline<br/>build time]
+  Help[Groww help links<br/>fixed, never sources]
+  Refresh[GitHub Actions<br/>daily redeploy]
 
-  User --> UI --> App --> RAG
+  User --> UI --> Guards --> RAG
   RAG --> Chroma
-  Seeds -.->|identify 5 schemes| Corpus
-  Official --> Corpus
-  Corpus -->|ingest pipeline| Chroma
+  RAG --> LLM
+  Guards -.->|PII / non-MF redirect| Help
+  Official --> Ingest --> Chroma
+  Refresh -.->|deploy hook| Ingest
 ```
-
-- **Groww URLs** identify the five HDFC schemes. They are not the citation source of record.  
-- **Official AMC / SEBI / AMFI** documents (factsheets, KIM/SID, FAQs, charges, riskometer/benchmark, statement guides) are loaded into the vector store and cited in answers.
 
 ---
 
-## 3. High-level components
+## 3. Components
 
-| Component | Responsibility |
-| --- | --- |
-| **Source registry** | YAML/CSV/MD of URLs, scheme, `doc_type`, allowed domains. Input to loading. |
-| **Loader** | HTTP fetch of HTML/PDF; extract text; attach `url`, `fetched_at`, `scheme`. |
-| **Chunker** | Heading-aware / recursive split; metadata per chunk. |
-| **Embedder** | `sentence-transformers/all-MiniLM-L6-v2` for documents and queries (same model). |
-| **Vector store** | Persistent **ChromaDB** collection of embeddings + metadata. |
-| **Query guards** | Classify/refuse advice; block returns computation; detect PII (do not persist). |
-| **Retriever** | Embed query → top-k similarity search → optional scheme filter. |
-| **Generator** | Grounded completion: ≤3 sentences, no advice, facts from context only. |
-| **Answer assembler** | Body + single citation URL + `Last updated from sources:` + disclaimer already in UI. |
-| **UI** | Welcome, 3 example questions, facts-only note, chat. |
-
-Ingestion is a **batch CLI/script**. Query path is a **local web app** (Python). Generation model is an implementation choice (must be documented in README); it must be strictly context-grounded.
+| Component | Responsibility | Module | Status |
+|---|---|---|---|
+| Source registry | URLs with publisher, doc type, scheme, question types, freshness limit, role, ingest date | `data/sources.csv`, `data/schemes.md` | ✅ Groww · ⬜ official (12) |
+| Scheme names | Canonical names, aliases, former names, categories | `src/schemes.py` | ✅ partial · ⬜ aliases (15) |
+| Loader | Fetch HTML/PDF, extract main text, allowlist, raw cache, keep last good copy | `src/ingest/load.py` | ✅ · ⬜ last-good, allowlist (13) |
+| Card builders | Parse each document type into fact cards | `src/ingest/groww.py` (Groww) · ⬜ official builder | ✅ Groww · ⬜ official (14) |
+| Generic chunker | Heading-aware recursive split for prose documents | `src/ingest/chunk.py` | ✅ |
+| Embedder | MiniLM-L6-v2 via ONNX Runtime, 384-dim, normalized | `src/ingest/embed.py` | ✅ |
+| Vector store | Persistent Chroma `hdfc_mf_faq`, cosine, idempotent rebuild | `src/ingest/store.py`, `chroma_compat.py` | ✅ |
+| Ingest CLI | load → chunk → embed → store; `--refresh`, `--strict` | `scripts/ingest.py` | ✅ · ⬜ official checks (13) |
+| Guards | PII, advice, performance, scope, about, clarify | `src/guards/*` | ✅ · ⬜ PRD §6 rules (15) |
+| Conversation context | Last 25 exchanges; fund and topic carry-over | `src/rag/context.py` | ✅ |
+| Retriever | Query expansion, scheme filter, field routing, holdings name lookup | `src/rag/retrieve.py` | ✅ · ⬜ re-tune (16) |
+| Holdings check | Definite "not among the N holdings" (A1) | `src/rag/holdings.py` | ✅ |
+| Generator | Grounded JSON answer; Groq / Claude / extractive | `src/rag/generate.py` | ✅ |
+| Validator | 3-sentence cap, number grounding · ⬜ banned words, return figures, link allowlist, regenerate once | `src/rag/generate.py` (+ ⬜ `validate.py`) | ✅ partial · ⬜ (17) |
+| Assembler | One link, freshness line, miss / ungrounded / error replies | `src/rag/assemble.py` | ✅ · ⬜ template (17) |
+| Facts reader | Structured facts for the UI from the same cards | `src/rag/facts.py` | ✅ |
+| UI | Scheme panel, fund cards, fact sheet, pills, chat | `src/app/main.py` | ✅ · ⬜ PRD §9 copy and feedback (19) |
+| Evaluation | Gold set, fund × field matrix, guard tests, chat test · ⬜ 200 golden set + report | `scripts/eval_gold.py`, `debug_*.py` | ✅ · ⬜ (20) |
+| Deployment | Render free web service, daily redeploy | `render.yaml`, `.github/workflows/refresh-data.yml` | ✅ |
 
 ---
 
-## 4. End-to-end pipelines
+## 4. Pipelines
 
-### 4.1 Ingestion (offline / rebuild)
+### 4.1 Ingestion (build time)
 
 ```
-Loading → Chunking → Embedding → Store vector data
+Loading → Chunking (card builders) → Embedding → Store vector data
 ```
 
 ```mermaid
 flowchart TD
-  A[Source list URLs] --> B[Load HTML / PDF]
-  B --> C[Normalize text + metadata]
-  C --> D[Chunk]
-  D --> E[Embed MiniLM]
-  E --> F[Upsert ChromaDB]
-  F --> G[Write source list + ingest timestamp]
+  A[data/sources.csv<br/>role=ingest] --> B[Load HTML / PDF<br/>allowlist · raw cache · keep last good]
+  B --> C[Card builders per doc type<br/>+ generic chunker for prose]
+  C --> D{--strict checks<br/>pages and required facts}
+  D -- fail --> X[Build fails<br/>Render keeps previous deploy]
+  D -- pass --> E[Embed MiniLM ONNX]
+  E --> F[Rebuild Chroma hdfc_mf_faq]
+  F --> G[Write fetched_at to sources.csv]
 ```
 
-| Stage | Behavior |
-| --- | --- |
-| **Loading** | Fetch only URLs in the registry. Parse HTML (main content) or PDF text. Drop navigation chrome. Record `url`, `scheme`, `doc_type`, `fetched_at`. Skip blogs / unofficial domains. |
-| **Chunking** | See §5. |
-| **Embedding** | Encode each chunk with `sentence-transformers/all-MiniLM-L6-v2` (384-dim). |
-| **Store** | Persist in ChromaDB on disk (e.g. `data/chroma/`). Collection name e.g. `hdfc_mf_faq`. Include metadata fields used at query time. Idempotent rebuild: wipe collection or upsert by `chunk_id`. |
+| Stage | Behaviour |
+|---|---|
+| Loading | Fetch only `role=ingest` rows on the allowlist. HTML: main text, chrome removed. PDF: text per page. Cache raw bytes in `data/raw/`. ⬜ On a failed fetch, use the last good cached copy and report it (PRD §8). |
+| Chunking | Card builders per document type (§5). The generic splitter handles prose. |
+| Strict checks | Every required page loaded; every scheme has cards for its required fields. Otherwise exit 1 before touching the index. |
+| Embedding | MiniLM-L6-v2 (official ONNX export), batch 32, L2-normalized. |
+| Store | Drop and recreate the collection; ids = `chunk_id`; metadata as in §5. |
 
-### 4.2 Retrieval and generation (online)
-
-```
-User query → Guards → Embed query → Retrieve top-k → Grounded generation → Answer + citation
-```
+### 4.2 Query path (online)
 
 ```mermaid
 sequenceDiagram
   participant U as User
   participant UI as UI
-  participant G as Guards
-  participant E as Embedder
-  participant V as ChromaDB
+  participant P as PII check
+  participant C as Context
+  participant G as Intent guards
+  participant R as Retriever
   participant L as Generator
+  participant V as Validator
   participant A as Assembler
 
-  U->>UI: question
-  UI->>G: raw text
-  G-->>UI: PII warning if needed (no store)
-  alt advice / buy-sell / ranking
-    G-->>UI: refusal + educational official link
-  else returns / performance compare
-    G-->>UI: no compute; factsheet link
-  else factual
-    G->>E: query
-    E->>V: vector + optional scheme filter
-    V-->>L: top-k chunks
-    alt weak / empty retrieval
-      L-->>A: we don't have this in prototype
-    else grounded
-      L-->>A: ≤3 sentences from context
+  U->>UI: message (+ selected scheme)
+  UI->>P: raw text
+  alt PII found (⬜ Phase 15: block)
+    P-->>UI: safety message + help link, input cleared, nothing sent
+  else clean
+    P->>C: text
+    C->>G: text + resolved scheme (named > selected > chat)
+    alt advice
+      G-->>UI: polite refusal + offer of facts + education link
+    else performance
+      G-->>UI: refusal + official factsheet link
+    else out-of-scope / non-MF / about / ambiguous scheme
+      G-->>UI: coverage message, redirect or chips + one link
+    else fact
+      G->>R: query + scheme filter + routed fields
+      R-->>L: top-k cards
+      L->>V: JSON answer (found, answer, excerpt)
+      alt fails validation (⬜ regenerate once)
+        V-->>A: fallback "couldn't find in official sources"
+      else valid
+        V-->>A: answer + cited card
+      end
+      A-->>UI: ≤3 sentences + Source label + Last updated DD Mon YYYY
     end
-    A-->>UI: text + one URL + last-updated
   end
 ```
 
-- **k:** start at **5**, allow **3–8** after eval.  
-- **Similarity floor:** if top score is below a threshold (tune on gold Q&A), treat as miss — do not guess.  
-- **Citation:** URL of the chunk with highest score among those actually used in the answer (v1: URL of `#1` retrieved chunk if the generator used it; if generation cites a later chunk, use that chunk’s `url`). Always **exactly one** link.  
-- **Last updated from sources:** `max(fetched_at)` of chunks passed to the generator (or corpus ingest date if all docs share one ingest run).
-
 ---
 
-## 5. Chunking strategy
+## 5. Chunking strategy (data-driven)
 
-Chosen for **FAQ-style field retrieval** (expense ratio, exit load, SIP, lock-in, riskometer) on mixed **HTML + PDF** official docs, including **table-heavy factsheets** and **narrative KIM/SID**.
+The brief asks for a chunking strategy chosen from the data. The corpus is a mix of
+structured pages (scheme pages, TER report, factsheet tables) and prose (KIM/SID,
+statement guides, education pages). Every **supported fact becomes one fact card**,
+and prose is split by headings.
 
-**Default (until first corpus inspect + gold eval):**
+**Fact card format:** `<Scheme> (Direct Plan – Growth): <Field label with synonyms>: <value>[, as on <date>].`
+For example: *"HDFC Small Cap Fund Direct Growth: Expense ratio (TER, total expense ratio): 0.79%."*
 
-| Parameter | Value |
-| --- | --- |
-| Splitter | Recursive character split, **heading-aware** where HTML/PDF outlines exist (`h1–h3`, factsheet section titles) |
-| Size | ~**400–800 tokens** per chunk (character proxy: ~1,600–3,200 chars; tune) |
-| Overlap | **10–15%** so table rows / fee sentences are not cut from their label |
-| Separators | `\n## `, `\n# `, `\n\n`, `\n`, `. `, space |
-| Tables | Prefer keep a fee/SIP/load table in **one chunk** when possible; if too large, split by row groups but repeat column headers in the next chunk |
+| Document type | Strategy | Cards / chunks | Status |
+|---|---|---|---|
+| Groww scheme page | Label/value parser | NAV, TER, AUM, min SIP and lump sum, exit load and history, stamp duty, tax, riskometer, benchmark, objective, managers and profiles, holdings and holdings analysis, fund house, registrar, overview | ✅ (replaced in Part B) |
+| HDFC scheme page | Field parser | TER (Direct/Regular), exit load, min SIP, riskometer, benchmark, AUM, managers (A1) | ⬜ 14 |
+| KIM / SID | Heading-aware split + field isolation | Exit load (incl. tiers), min SIP, **ELSS lock-in** | ⬜ 14 |
+| Monthly factsheet | Per-fund page attribution (fund-name headings) + field cards | NAV with "as on" date, TER, AUM, managers, holdings, holdings analysis (A1) | ✅ attribution · ⬜ cards 14 |
+| TER disclosure | Table parser | TER per scheme and plan | ⬜ 14 |
+| Statement pages | Step-list chunks | How to download account / capital-gains statements, CAS | ⬜ 14 |
+| SEBI / AMFI | Heading-aware sections | Riskometer levels, ELSS and SIP basics, investor education | ⬜ 14 |
+| Holdings analysis | Computed at ingest from listed weights, labelled "calculated" | Asset class, instrument type, sector | ✅ (A1) |
+
+**Generic splitter** (prose): heading-aware recursive split, 1,600–3,200 chars, ~12%
+overlap, separators `\n## `, `\n# `, `\n\n`, `\n`, `. `, space; fee tables kept whole or
+split by rows with headers repeated.
 
 **Metadata on every chunk**
 
 | Field | Use |
-| --- | --- |
-| `chunk_id` | Stable id: hash(`url` + start offset) |
-| `url` | Citation |
-| `scheme` | Filter retrieval to the named fund when the query names it |
-| `doc_type` | `factsheet` \| `kim` \| `sid` \| `faq` \| `charges` \| `riskometer` \| `statement_guide` |
-| `section_title` | Retrieval debug + prompt context |
-| `fetched_at` | Last-updated line |
+|---|---|
+| `chunk_id` | Stable id: hash(url + field/label) for cards, hash(url + offset) for prose |
+| `url` | The citation (most specific page, FR-7) |
+| `publisher` ⬜ | HDFC MF / SEBI / AMFI; source label |
+| `scheme` | Retrieval filter; `ALL` for shared documents |
+| `plan` ⬜ | Direct / Regular (FR-3) |
+| `doc_type` | scheme_page, kim, sid, factsheet, ter, statement_guide, education, riskometer |
+| `field` | Fact type (`expense_ratio`, `exit_load`, `lock_in`, …); drives routing and evaluation |
+| `section_title` | Readable label, prompt context |
+| `doc_date` ⬜ | Date the document states (e.g. factsheet month); conflicts and freshness |
+| `fetched_at` | Ingest date: the freshness line |
 | `amc` | `HDFC` |
 
-**Tune after first retrieval eval** on the 5–10 gold questions (expense ratio, SIP, lock-in, exit load, riskometer/benchmark, statement download). If tables fragment, increase size or add a table-specific splitter.
+---
+
+## 6. Retrieval
+
+| Topic | Choice | Status |
+|---|---|---|
+| Query embedding | Same MiniLM (ONNX) as documents, on the query plus expanded synonyms ("fund size" → "assets under management") | ✅ |
+| Search | Dense cosine in Chroma | ✅ |
+| Scheme filter | Resolved scheme(s) before ranking (PRD §11 mitigation); shared `ALL` documents stay reachable | ✅ |
+| Field routing | Question type → card fields; a filtered search on those fields goes first | ✅ · ⬜ re-tune for official types (16) |
+| Holdings name lookup | Exact, case-insensitive match of company names across the fund's holdings cards (A1) | ✅ |
+| top-k / floor | `TOP_K = 8`; `MIN_SCORE = 0.35` (in-scope ≥ 0.42, off-topic ≤ 0.24 on the current index) | ✅ · ⬜ re-calibrate (16) |
+| Conflicting sources | Prefer the card with the newest `doc_date`; log the conflict (PRD §8) | ⬜ 16 |
+| Factual comparison | Only when one page supports both facts; otherwise answer the first scheme and invite a second question (PRD §8) | ⬜ 16 |
+| Hybrid search / reranker | Not used; add only if the golden set fails | — |
+
+**Field routing table (target)**
+
+| Question type | Card fields | Typical source |
+|---|---|---|
+| Expense ratio | `expense_ratio` | TER page, scheme page |
+| Exit load | `exit_load` | Scheme page, KIM |
+| Minimum SIP | `min_sip` | Scheme page, KIM |
+| ELSS lock-in | `lock_in` | KIM / SID |
+| Riskometer | `riskometer` | Scheme page; meaning from SEBI |
+| Benchmark | `benchmark` | Scheme page, factsheet |
+| Statement download | `statement_steps` | HDFC statement pages |
+| A1 extras | `nav`, `aum`, `fund_managers`, `holdings`, `holdings_breakdown`, `definition`, `fund_house` | Factsheet, scheme page, AMFI |
 
 ---
 
-## 6. Retrieval details
+## 7. Response contract
 
-| Topic | v1 choice |
-| --- | --- |
-| Query embedding | Same MiniLM model as documents |
-| Search | Dense cosine / Chroma default on the collection |
-| Filters | If query mentions a scheme (or example-question chip includes it), `where: scheme = …` |
-| Hybrid search | Out of scope for v1 (no BM25 required) |
-| Reranker | Out of scope for v1; add only if gold set fails |
-| Multi-scheme questions | If two schemes named, retrieve without filter or run two filtered searches and keep top chunks; still **one** citation (best single supporting URL) or refuse to compare returns |
+**Template (every response, PRD §7)**
 
-Prompt context to the generator: concatenated chunks with `url` and `section_title` prefixes so the model can stay faithful; the **assembler** still emits only one user-facing link.
+1. Body: 1–3 sentences; the first states the fact with the full scheme name and plan.
+2. Source: one link with a readable label, e.g. *"Source: HDFC Small Cap Fund – scheme page"*.
+3. Freshness: *"Last updated from sources: DD Mon YYYY"* (the cited page's ingest date).
 
----
-
-## 7. Generation and answer contract
-
-**System instructions (must enforce in code + prompt):**
-
-- Use only the provided excerpts.  
-- At most **three sentences** of answer body.  
-- No buy/sell, ranking, suitability, or portfolio advice.  
-- No return/CAGR/NAV computation or comparison.  
-- If excerpts do not contain the fact, say this prototype does not have it; optional hub link (AMC/AMFI/SEBI), still one URL.
-
-**Answer payload (API → UI)**
+**Payload (pipeline → UI)**
 
 ```json
 {
   "text": "…",
   "source_url": "https://…",
-  "last_updated_from_sources": "2026-09-27",
+  "source_label": "HDFC Small Cap Fund – scheme page",
+  "last_updated_from_sources": "2026-10-02",
   "refusal": false,
   "refusal_reason": null
 }
 ```
 
-Citation and last-updated are **outside** the three-sentence count (PRD).
+`source_label` is ⬜ Phase 17. The UI formats the date as DD Mon YYYY.
+
+**Links for non-answer responses (fixed table, never model-generated)**
+
+| Response | Link | Status |
+|---|---|---|
+| Advice refusal (FR-8) | AMFI / Mutual Funds Sahi Hai or SEBI investor education | ⬜ 15 (currently no link) |
+| Performance refusal (FR-9) | Official HDFC MF factsheet | ✅ |
+| Out-of-scope (FR-14) | Relevant HDFC MF page (schemes listing for "scheme not in corpus") or AMFI | ✅ AMFI · ⬜ listing (15) |
+| Non-MF redirect (FR-15) | https://groww.in/help | ⬜ 15 |
+| PII block (FR-11) | https://groww.in/help/mutual-funds | ⬜ 15 |
+| Miss / fallback (FR-1) | The resolved scheme's official page | ✅ |
+| About / clarify | Official schemes listing or AMFI page | ⬜ 17 |
+
+**Validator (FR-4 and grounding)**
+- ✅ At most 3 sentences.
+- ✅ Every number must appear in the retrieved cards (`UngroundedNumberError` gives an
+  honest "I can only give figures stated in the sources").
+- ⬜ (17) Rejects return figures, recommendation verbs (should, better, best, suitable)
+  and banned tone words (safe, good, ideal, recommended, guaranteed).
+- ⬜ (17) The link must be in the corpus or the fixed table.
+- ⬜ (17) On rejection, regenerate once, then use the FR-1 fallback.
+- ⬜ (17) Stale sentence: when the cited page is past its freshness limit, add
+  "Please check the linked page for the latest value" (counts toward the 3 sentences).
 
 ---
 
-## 8. Application-layer guards
+## 8. Intent and guards (PRD §6)
 
-Do not rely on the LLM alone (PRD §7.3).
+Fixed precedence; the first rule that fires decides. When unsure between fact and
+advice, choose advice. Mixed messages follow the highest-precedence intent.
 
-| Guard | Trigger (examples) | Action |
-| --- | --- | --- |
-| **Advice** | should I buy/sell, best fund, allocate, suitable for me | Polite facts-only refusal + educational official link (AMFI investor education or SID “risks” page — pick one stable URL, document in source list) |
-| **Performance** | returns, CAGR, beat benchmark, which performed better | Do not compute; link official **factsheet** for the named scheme if known, else AMC factsheet hub |
-| **PII** | PAN, Aadhaar, account numbers, OTP, email, phone | Do **not** write to Chroma, logs, or chat history stores. Warn in UI. Strip or redact before any logging. Continue as anonymous FAQ. |
-| **Out of corpus** | Other AMC, other schemes, live holdings | Prototype scope message; no hallucination |
+| # | Intent | Trigger (examples) | Action | Status |
+|---|---|---|---|---|
+| 1 | PII | PAN, Aadhaar (Verhoeff checksum ⬜), 10-digit mobile, email, OTP, account/folio | ⬜ **Block**: nothing sent to retrieval, the model or logs; safety message; help link; input cleared. Server-side redaction stays as a backstop. | ✅ redact · ⬜ block (15) |
+| 2 | Advice | should I buy/sell/hold/switch, which is better/suitable, own portfolio or goals | Polite refusal + offer of facts + one education link | ✅ refusal · ⬜ offer + link (15) |
+| 3 | Performance | returns, CAGR, beat benchmark, rankings, NAV growth | Refusal + factsheet link; no figures | ✅ |
+| 4 | Out-of-scope | Other AMCs, other HDFC schemes, Regular/IDCW ⬜, live data | Coverage message + one official link | ✅ · ⬜ Regular/IDCW (15) |
+| 4b | Non-MF ⬜ | Stocks, loans, cards, general chat | One-line redirect to Groww help | ⬜ 15 |
+| — | About | "Which funds can you access?" | Fixed list of the five schemes and supported facts | ✅ |
+| — | Ambiguous scheme | Fact question naming no fund (and none in context); two fuzzy matches ⬜ | "Which fund do you mean?" + chips | ✅ · ⬜ chips, fuzzy (15) |
+| 5 | Fact | One of the 7 types (+ A1 extras) for an in-scope scheme | RAG answer | ✅ |
 
-PII patterns: conservative regex + keyword checks is enough for a prototype; false positives (e.g. “email me the factsheet link”) should still avoid storing addresses.
+**Scheme resolution (FR-2/3):** canonical names, former names (HDFC Top 100 → Large
+Cap, HDFC Equity Fund → Flexi Cap, HDFC Taxsaver → ELSS) and short forms (BAF,
+"hdfc smallcap") resolve to one scheme. Answers default to Direct Plan – Growth; TER
+answers add "Regular Plan values differ; see the linked page" ⬜ 15/17. Company names
+inside holdings questions are not treated as other AMCs ✅.
 
 ---
 
-## 9. Data and persistence
+## 9. Conversation context ✅ (Addendum A2)
+
+- The last **25 exchanges** (redacted questions + answer texts) live in browser-session
+  memory only.
+- **Scheme priority** for a question naming no fund: the scheme named in the question,
+  then the scheme selected in the UI, then the most recent fund in the chat. The UI
+  notes which one it assumed.
+- Short follow-ups ("What about Large Cap?") are searched together with the previous
+  question and passed to the generator with it.
+- History only helps interpret the question. Facts must come from the cards retrieved
+  for it, and the number check runs against those cards only.
+
+---
+
+## 10. Freshness and refresh
+
+| Item | Design | Status |
+|---|---|---|
+| Freshness limits | TER 7 days, factsheet 35 days, KIM/SID 180 days, others per `sources.csv` | ⬜ 18 |
+| Re-ingest | Every Render deploy (`ingest.py --refresh --strict`); daily redeploy via GitHub Actions at 21:00 IST | ✅ |
+| Failed fetch | Keep the last good copy; report in the build log | ⬜ 13/18 |
+| Dated editions | Factsheet/KIM/SID URLs change per edition (JS hub pages can't be crawled): monthly update of `sources.csv`; `--strict` flags missing editions | ⬜ 18 |
+| Link health | Report 4xx/5xx for every source URL in the scheduled workflow (PRD §11) | ⬜ 18 |
+| UI staleness | Banner when the corpus is older than 3 days | ✅ |
+| Volatile facts in evaluation | Checked against current cards (`card:<field>`) so tests survive refreshes | ✅ |
+
+---
+
+## 11. Data and persistence
 
 ```
 data/
-  sources.csv          # URL, scheme, doc_type, fetched_at
-  chroma/              # Chroma persistent dir (gitignored)
-  raw/                 # optional cached HTML/PDF for rebuild (gitignored or LFS)
+  sources.csv       # source list (deliverable): url, publisher, doc_type, scheme,
+                    #   question_types, freshness_limit_days, role, fetched_at  (⬜ 12)
+  schemes.md        # scheme names, aliases, per-source notes, known gaps
+  golden_set.csv    # ⬜ 200 labelled queries (20)
+  chroma/           # vector store (git-ignored; rebuilt by ingest)
+  raw/              # cached downloads (git-ignored)
+.cache/             # embedding model (HF_HOME on Render; git-ignored)
 ```
 
-**Do persist:** chunk text, embeddings, public URLs, ingest dates, scheme metadata.  
-**Do not persist:** user identifiers, PAN/Aadhaar/OTP/email/phone, conversation PII.
-
-Chat history: in-memory for the session only, or omit persistence entirely for v1.
+**Persisted:** public URLs, card text, embeddings, ingest dates, scheme metadata.
+**Never persisted:** PAN, Aadhaar, OTP, email, phone, account/folio numbers, raw user
+messages, chat history (session memory only), or feedback (session only, A3).
 
 ---
 
-## 10. Suggested repo layout
+## 12. UI (Streamlit)
+
+| Element | Design | Status |
+|---|---|---|
+| Header | "Mutual Funds FAQ"; pinned "Facts-only. No investment advice." | ✅ |
+| Welcome line, 3 example chips | Exact PRD §9 copy | ✅ own copy · ⬜ PRD copy (19) |
+| Input hint | "Ask a factual question. Don't share PAN, Aadhaar or account details." | ⬜ 19 |
+| Answer bubble | Body, readable source label (opens in a new tab), freshness line in secondary text | ✅ link pill · ⬜ label and format (19) |
+| PII block state | Inline warning above the input, input cleared, nothing sent | ⬜ 19 |
+| Feedback | 👍 / 👎 + optional reason; session only (A3) | ⬜ 19 |
+| Scheme panel, fund cards, fact sheet (A1) | Left picker; cards with live figures; fact sheet with asset mix and top holdings; all read from Chroma (`facts.py`) | ✅ (fed by official cards in ⬜ 19) |
+| No transaction CTAs; accessibility labels | — | ✅ no CTAs · ⬜ labels (19) |
+
+---
+
+## 13. Deployment ✅
+
+- **Render free web service** (`render.yaml`):
+  - build `pip install -r requirements.txt && python scripts/ingest.py --refresh --strict`
+  - start `streamlit run src/app/main.py --server.port $PORT --server.address 0.0.0.0 --server.headless true`
+  - health check `/_stcore/health`
+- Env: `GROQ_API_KEY` (secret), `GROQ_MODEL`, `PYTHON_VERSION=3.12.10`,
+  `HF_HOME=/opt/render/project/src/.cache/huggingface` (the model must live inside the
+  project to survive into runtime), `ANONYMIZED_TELEMETRY=False`.
+- **Memory:** peak about 305 MB (model + Chroma + Streamlit) of the 512 MB free limit.
+  Cold start after sleep is ~30–60 s.
+- **Daily refresh:** `.github/workflows/refresh-data.yml` calls the Render deploy hook
+  (secret `RENDER_DEPLOY_HOOK_URL`).
+- **Platform workarounds:** PyTorch and grpcio DLLs are blocked by Windows Application
+  Control on the dev machine. Embeddings run via ONNX Runtime, and
+  `chroma_compat.py` stubs the unused gRPC tracing exporter. Both are no-ops on Linux.
+
+---
+
+## 14. Evaluation
+
+| Suite | What it checks | Cost | Status |
+|---|---|---|---|
+| Fund × field matrix (`eval_gold.py --matrix`) | Top-1 card is the right fund and field | Free | ✅ 50/50 |
+| Gold set (`eval_gold.py`) | Retrieval rank, answer contains fact, source cited | Free (`--retrieval-only`) / Groq | ✅ 19/20 |
+| Guard tests (`debug_guards.py`) | Intent routing, PII never leaks | Free | ✅ 58/58 |
+| Chat test (`debug_chat.py`) | Multi-turn follow-ups | Free (`--no-llm`) / Groq | ✅ 8/8 |
+| **Golden set (200)** | PRD §10 metrics: accuracy, citation, refusal recall/precision, format, PII, fabrication | Free mode / full mode (about a day's Groq quota) | ⬜ 20 |
+
+Evaluation runs locally, never in the Render build.
+
+---
+
+## 15. Repo layout
 
 ```
-docs/PRD.md
-docs/architecture.md
-docs/problemstatement.txt
-README.md
-data/sources.csv
+docs/  PRD.md · PRD (….pdf) · architecture.md · implementation.md · problemstatement.txt
+       eval_notes.md · sample_qa.md · ⬜ evaluation_report.md
+data/  sources.csv · schemes.md · ⬜ golden_set.csv
 src/
-  ingest/
-    load.py
-    chunk.py
-    embed.py
-    store.py
-  rag/
-    retrieve.py
-    generate.py
-    assemble.py
-  guards/
-    advice.py
-    pii.py
-    performance.py
-  app/
-    main.py          # UI + API
-scripts/
-  ingest.py          # rebuild index
+  schemes.py                  # scheme names, aliases, categories
+  ingest/  load.py · chunk.py · groww.py · ⬜ official card builder
+           embed.py · store.py · chroma_compat.py
+  guards/  pipeline.py · pii.py · advice.py · performance.py · scope.py
+           about.py · clarify.py · common.py
+  rag/     pipeline.py · context.py · retrieve.py · holdings.py
+           generate.py · assemble.py · facts.py · ⬜ validate.py
+  app/     main.py
+scripts/  ingest.py · eval_gold.py · make_sample_qa.py · debug_ask.py
+          debug_chat.py · debug_guards.py · debug_retrieve.py
+          dump_chunks.py · dump_embeddings.py · ⬜ eval_golden.py · ⬜ check_links.py
+render.yaml · .github/workflows/refresh-data.yml · requirements.txt · .env.example
 ```
-
-Exact filenames can change; **ingest vs retrieve packages must stay separate** so both RAG stages are explicit.
 
 ---
 
-## 11. Technology stack (v1)
+## 16. Technology stack
 
 | Layer | Choice |
-| --- | --- |
-| Language | Python 3.11+ |
-| Embeddings | `sentence-transformers/all-MiniLM-L6-v2` |
-| Vector DB | ChromaDB (persistent client) |
-| Loading | `httpx`/`requests` + HTML parser + PDF text extract (e.g. `pypdf` or `pymupdf`) |
-| Chunking | LangChain / LlamaIndex splitter **or** equivalent custom recursive splitter — same parameters as §5 |
-| UI | Streamlit or Gradio (fastest for tiny chat + example chips) |
-| Generator | Document in README (local LLM or hosted API). Must support a system prompt and context window large enough for top-k chunks. |
+|---|---|
+| Language | Python 3.12 (3.11+ supported) |
+| Loading | `httpx`, BeautifulSoup, `pypdf` |
+| Embeddings | `sentence-transformers/all-MiniLM-L6-v2`, official ONNX export via `onnxruntime` + `tokenizers` |
+| Vector DB | ChromaDB 1.5 (persistent client, cosine) |
+| Generator | Groq free tier `openai/gpt-oss-120b` (strict JSON schema, low reasoning); Claude via Anthropic SDK if `ANTHROPIC_API_KEY` is set; extractive fallback |
+| UI | Streamlit 1.64 with custom theme and CSS |
+| Hosting | Render free web service; GitHub Actions for the daily refresh |
 
-Local-first: index build and chat should run on a laptop (PRD NFR1–NFR2). Target: **seconds per answer** after the index exists.
-
----
-
-## 12. Failure modes
-
-| Failure | User-visible behavior |
-| --- | --- |
-| Empty / low-similarity retrieval | No invented numbers; “not in this prototype” + optional official hub link |
-| Generator error / timeout | Generic safe error; no partial fake fee |
-| Fetch failure at ingest | Fail the document, list it in README known limits; do not index empty pages |
-| Ambiguous scheme | Ask user to name one of the five funds, or retrieve unfiltered and answer only if one scheme dominates chunks |
+All dependencies are pinned in `requirements.txt`.
 
 ---
 
-## 13. Mapping to PRD
+## 17. Failure modes
 
-| PRD | Architecture |
-| --- | --- |
-| G4 / §7 ingestion | §4.1 Loading → Chunking → Embedding → Chroma |
-| G4 / §7 retrieval | §4.2 Embed → top-k → generate |
-| FR2, MiniLM + Chroma | §3, §11 |
-| FR3–FR5 answer shape | §7 assembler |
-| FR6–FR7, FR10 safety | §8 guards |
-| FR8 UI | Tiny Streamlit/Gradio shell |
-| FR9 rebuild index | `scripts/ingest.py` |
-| NFR5 no hallucinated fee | similarity floor + grounded prompt |
-| Later: no live web agent | §1 indexed RAG only |
+| Failure | Behaviour | Status |
+|---|---|---|
+| Low-similarity / empty retrieval | "Couldn't find this in official sources" + the scheme page; never a guess (FR-1) | ✅ |
+| Answer with a figure not in the sources | Rejected; honest "only figures stated in the sources" reply | ✅ |
+| Answer failing FR-4 (banned word, return figure, bad link, > 3 sentences) | Regenerate once, then the FR-1 fallback | ⬜ 17 |
+| Generator error / rate limit | Retry with backoff on 429; then a generic safe error, no partial facts | ✅ |
+| Fetch failure at ingest | Keep the last good copy (⬜ 13); `--strict` fails the build if a required page or fact is missing, and Render keeps serving the previous deploy | ✅ strict · ⬜ last good |
+| Source blocks cloud IPs (e.g. HDFC bot protection, SEBI) | Strict build fails visibly; fallback is a committed snapshot | ⬜ 18 if needed |
+| Stale page | Freshness line on every answer; stale sentence past the limit (⬜ 17); UI banner (✅) | partial |
+| Ambiguous scheme | Clarify with chips | ✅ text · ⬜ chips |
 
 ---
 
-## 14. Open implementation choices (from PRD §12)
+## 18. Mapping to the PRD
 
-| Item | Architecture stance |
-| --- | --- |
-| Generator model | Not fixed; README must name it; grounding rules are fixed. |
-| Groww vs official | Ingest and cite **official** pages; Groww only in seed/scoping list unless an official URL is missing (then document as a known limit). |
-| Chunk sizes | §5 defaults; change only with gold-set evidence. |
+| PRD | Architecture | Status |
+|---|---|---|
+| §4 scope, corpus, allowlist | §1, §5, §11 | ⬜ 12–14 |
+| FR-1 answer only from passages | §4.2, §7 fallback, §17 | ✅ |
+| FR-2 scheme resolution | §8 | ✅ partial · ⬜ 15 |
+| FR-3 Direct plan default | §8 | ⬜ 15/17 |
+| FR-4 validator | §7 | ✅ partial · ⬜ 17 |
+| FR-5 one link from metadata | §7 | ✅ answers · ⬜ every response (17) |
+| FR-6 freshness line | §7 | ✅ ISO · ⬜ DD Mon YYYY (17) |
+| FR-7 most specific page | §5 metadata, §6 | ⬜ 16 |
+| FR-8 advice refusal | §7, §8 | ⬜ 15 |
+| FR-9 performance refusal | §7, §8 | ✅ |
+| FR-10–13 PII | §8, §11, §12 | ✅ redact · ⬜ block (15/19) |
+| FR-14 out of scope | §8 (A1 extras stay answerable) | ✅ · ⬜ Regular/IDCW |
+| FR-15 non-MF redirect | §7, §8 | ⬜ 15 |
+| §6 intent precedence | §8 | ✅ |
+| §7 template and tone | §7 | ⬜ 17 |
+| §8 edge cases | §6, §8, §10 | partial · ⬜ 15–18 |
+| §9 UI | §12 | ✅ partial · ⬜ 19 |
+| §10 golden set and metrics | §14 | ⬜ 20 |
+| §11 risks | §6 scheme filter, §10, §17 | partial |
+| §12 deliverables | §11, §14, README | ⬜ 21 |
+| Addendum A1–A7 | §5, §9, §12, §13 | ✅ |
+
+---
+
+## 19. Open choices and known limits
+
+| Item | Stance |
+|---|---|
+| Extra fields beyond the 7 types (A1) | Kept and answerable; documented deviation from FR-14 |
+| Dated document URLs | Maintained monthly in `sources.csv` (hub pages are JS-rendered) |
+| Cloud-IP blocking | Verify on the first Render build of the official corpus; snapshot fallback if needed |
+| Groq free-tier quota | ~35 full answers' worth of tokens per day at current prompt sizes; the full golden-set run is occasional |
+| Chunk sizes / reranker | Changed only with golden-set evidence |
+| Generator | Groq now; Claude supported by setting `ANTHROPIC_API_KEY` |
