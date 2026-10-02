@@ -57,8 +57,8 @@ that phase: fix the loader/registry, record the gap, then continue.
 | 10 | Deliverables + eval | A | ✅ Built |
 | A+ | Later work (Groww corpus, fact cards, holdings, context memory, UI redesign, Render deploy) | A | ✅ Built |
 | 11 | Docs baseline for the new PRD | B | ✅ Done |
-| 12 | Official source registry (~22 pages) | B | ⬜ Next |
-| 13 | Loading official sources | B | ⬜ |
+| 12 | Official source registry (~22 pages) | B | ✅ Done |
+| 13 | Loading official sources | B | ⬜ Next |
 | 14 | Chunking official documents | B | ⬜ |
 | 15 | Intent + guards per PRD §6 | B | ⬜ |
 | 16 | Retrieval re-tune | B | ⬜ |
@@ -227,9 +227,9 @@ data/schemes.md. Never invent a URL: list unconfirmed pages as known gaps.
 ```
 
 **Done when**
-- [ ] 20–25 `ingest` rows, all on the allowlist, each fetched successfully at least once
-- [ ] Every one of the 7 question types is answered by at least one row, for each scheme where applicable
-- [ ] Two `help` rows; no Groww scheme pages
+- [x] 20–25 `ingest` rows (24), all on the PRD allowlist, each fetched successfully on 2026-10-02 (`mutualfundssahihai.com` is added to the loader allowlist in Phase 13)
+- [x] Every one of the 7 question types is answered by at least one row, for each scheme where applicable
+- [x] Two `help` rows; no Groww scheme pages
 
 ---
 
