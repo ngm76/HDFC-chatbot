@@ -61,8 +61,8 @@ that phase: fix the loader/registry, record the gap, then continue.
 | 13 | Loading official sources | B | ✅ Done |
 | 14 | Chunking official documents | B | ✅ Done |
 | 15 | Intent + guards per PRD §6 | B | ✅ Done |
-| 16 | Retrieval re-tune | B | ⬜ Next |
-| 17 | Response template + validator | B | ⬜ |
+| 16 | Retrieval re-tune | B | ✅ Done |
+| 17 | Response template + validator | B | ⬜ Next |
 | 18 | Freshness + refresh | B | ⬜ |
 | 19 | UI per PRD §9 | B | ⬜ |
 | 20 | Golden set (200) + evaluation report | B | ⬜ |
@@ -397,9 +397,30 @@ is one retrievable card that names its scheme, plan and source date.
 - **Factual comparison:** allowed only when one page supports both facts.
 - Re-calibrate `MIN_SCORE` and `TOP_K`.
 
+**As built (2026-10-03)**
+- Routing for the official card types: definitions (incl. short "What is ELSS?")
+  → glossary + SEBI/AMFI education; riskometer meaning → SEBI circular + education;
+  direct vs regular → education; statements / registrar / CAS → statement pages;
+  plus former name, inception (scheme allotment and Direct Plan start, now separate
+  fields), objective, entry load, scheme type, how to invest / redeem, manager
+  experience. Plurals ("expense ratios", "exit loads") are routed.
+- Conflicts (§8): cards for the same scheme and fact from different documents are
+  ordered newest first (`doc_date`, else ingest date); differing figures are logged
+  by scheme and field only.
+- Factual comparison (§8): several schemes are answered together only when one page
+  covers all of them (`one_page_covers`, e.g. the TER file); otherwise the first
+  scheme named is answered and the UI note invites a separate question.
+- `detect_schemes` returns schemes in the order they are mentioned.
+- Calibration (79 answerable questions): median 0.87, p5 0.53; unanswerable fund
+  questions score 0.58–0.82, so the floor cannot separate them (the generator's found
+  flag and the validator do). `MIN_SCORE` 0.35 → 0.20 (keeps short term questions
+  such as "What is a folio number?"); `TOP_K` stays 8.
+- Offline extractive fallback quotes the routed card when it is the top result.
+- Results: matrix 50/50, gold retrieval 20/20, guards 92/92.
+
 **Done when**
-- [ ] Fund × field matrix: top-1 correct for all 7 types × 5 schemes
-- [ ] Most-specific-page citation (scheme or TER page over a homepage)
+- [x] Fund × field matrix: top-1 correct for all 7 types × 5 schemes
+- [x] Most-specific-page citation (scheme or TER page over a homepage)
 
 ---
 

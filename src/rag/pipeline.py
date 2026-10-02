@@ -13,7 +13,7 @@ Cap?") inherit the fund and topic; facts still come from the retrieved cards.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Sequence
 
 from src.guards.common import AnswerPayload
@@ -23,7 +23,7 @@ from src.rag import context
 from src.rag.assemble import assemble, generation_error, not_found, ungrounded
 from src.rag.generate import GenerationError, UngroundedNumberError, generate, generator_label
 from src.rag.holdings import absence_answer
-from src.rag.retrieve import RetrievedChunk, retrieve
+from src.rag.retrieve import RetrievedChunk, intent_fields, one_page_covers, retrieve
 from src.schemes import detect_schemes, former_name_used, fuzzy_schemes, short_name
 
 logger = logging.getLogger(__name__)
@@ -92,6 +92,17 @@ def ask(
             absent = absence_answer(text, resolved.schemes[0])
             if absent:
                 return Answer(absent, decision.pii_warning, query, context_note=note)
+
+    # PRD §8 factual comparison: several schemes are answered together only when
+    # one official page states the fact for all of them; otherwise answer the first
+    # and invite a second question (each answer keeps a single citation).
+    schemes = resolved.schemes
+    if len(schemes) > 1 and not one_page_covers(schemes, intent_fields(query)):
+        rest = ", ".join(short_name(s) for s in schemes[1:])
+        note = (f"Answered for {short_name(schemes[0])}; no single official page covers "
+                f"both, so please ask about {rest} separately.")
+        schemes = schemes[:1]
+        resolved = replace(resolved, schemes=schemes)
 
     chunks = retrieve(resolved.search_text, schemes=resolved.schemes or None)
     if not chunks:

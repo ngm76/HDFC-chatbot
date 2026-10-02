@@ -184,7 +184,9 @@ def scheme_page_cards(text: str, scheme: str) -> list[OfficialCard]:
 
     inception = _panel_value(lines, "Inception Date")
     if inception:
-        add("inception_date", "Inception date of the Direct Plan",
+        # The Direct Plan's start, not the scheme's launch (that is the factsheet's
+        # "date of allotment"), so it gets its own field.
+        add("plan_inception_date", "Inception date of the Direct Plan",
             human_date(_iso(inception)) or inception)
 
     managers = _between(lines, "Fund Managers", ("Portfolio Allocation",))

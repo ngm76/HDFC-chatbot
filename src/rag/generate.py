@@ -33,7 +33,7 @@ import httpx
 from dotenv import load_dotenv
 
 from src.guards.performance import is_performance
-from src.rag.retrieve import RetrievedChunk
+from src.rag.retrieve import RetrievedChunk, intent_fields
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -359,7 +359,14 @@ def _best_sentences(query: str, text: str) -> tuple[int, list[str]]:
 
 def _generate_extractive(query: str, chunks: list[RetrievedChunk]) -> Generation:
     """Quote up to three sentences from whichever of the top chunks overlaps the
-    query best (ties go to the higher-ranked chunk). Cites that chunk."""
+    query best (ties go to the higher-ranked chunk). Cites that chunk. When the top
+    chunk is a fact card routed for the field asked ("launched" -> inception date),
+    it is the answer even if the wording differs, so its card text is quoted."""
+    fields = intent_fields(query)
+    top = chunks[0]
+    if fields and top["field"] in fields and not is_performance(top["text"]):
+        quote = " ".join(_TITLE_PREFIX_RE.sub("", top["text"]).split())[:400]
+        return Generation(True, f"{EXTRACTIVE_LABEL} {quote}", 0, "extractive")
     candidates = [
         (i, *_best_sentences(query, c["text"])) for i, c in enumerate(chunks[:EXTRACTIVE_CANDIDATES])
     ]

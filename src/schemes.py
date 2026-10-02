@@ -83,8 +83,10 @@ def short_name(scheme: str) -> str:
 
 
 def detect_schemes(text: str) -> list[str]:
-    """Schemes (internal names) the text mentions, in SCHEME_PATTERNS order."""
-    return [name for name, pattern in SCHEME_PATTERNS.items() if pattern.search(text)]
+    """Schemes (internal names) the text mentions, in the order they are mentioned."""
+    hits = [(m.start(), name) for name, pattern in SCHEME_PATTERNS.items()
+            if (m := pattern.search(text))]
+    return [name for _, name in sorted(hits)]
 
 
 def former_name_used(text: str) -> tuple[str, str] | None:
