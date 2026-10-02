@@ -1,4 +1,4 @@
-# Mutual Fund FAQ RAG Chatbot
+﻿# Mutual Fund FAQ RAG Chatbot
 
 A small, facts-only FAQ assistant for five **HDFC Mutual Fund** schemes. It answers
 from the five public **Groww** scheme pages named in the problem statement, using
@@ -128,6 +128,21 @@ downloads the embedding model (about 90 MB).
 ```powershell
 streamlit run src/app/main.py
 ```
+
+The UI ("Mutual Funds FAQ") is styled like a modern investing app, under its own name and
+colours (not affiliated with Groww):
+- **Left panel:** pick a scheme. Questions that name no fund are then answered
+  for it.
+- **Fund cards:** live NAV (with date) and expense ratio for all five funds.
+- **Fact sheet** for the selected fund: NAV, TER, AUM, min SIP, exit load,
+  benchmark, managers, riskometer, asset mix bar and top holdings, with a source
+  link.
+- **Quick-question pills**, and chat bubbles with a source pill and the
+  last-updated date.
+
+Every figure comes from the same Chroma fact cards the chatbot answers from
+(`src/rag/facts.py`), so cards, fact sheet and answers always agree and update
+with each data refresh.
 
 ## Deploy on Render (free plan)
 

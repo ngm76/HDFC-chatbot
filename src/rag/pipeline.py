@@ -41,19 +41,27 @@ class Answer:
     context_note: str | None = None
 
 
-def ask(message: str, history: Sequence[context.Turn] = ()) -> Answer:
-    # Carry the fund over from the conversation only for questions naming none.
-    carried = None if detect_schemes(message) else context.resolve(message, history).carried_scheme
+def ask(
+    message: str, history: Sequence[context.Turn] = (), selected_scheme: str | None = None
+) -> Answer:
+    """`selected_scheme`: the fund picked in the UI's scheme panel, used when the
+    question names no fund (before falling back to the chat history)."""
+    # Carry the fund over only for questions naming none.
+    carried = (
+        None if detect_schemes(message)
+        else context.resolve(message, history, selected_scheme).carried_scheme
+    )
     decision = run_guards(message, context_scheme=carried)
     if not decision.allowed:
         return Answer(decision.payload, decision.pii_warning, decision.query)
 
     query = decision.query
-    resolved = context.resolve(query, history)
-    note = (
-        f"Follow-up: assumed you mean {resolved.carried_scheme} from earlier in the chat."
-        if resolved.carried_scheme else None
-    )
+    resolved = context.resolve(query, history, selected_scheme)
+    note = None
+    if resolved.carried_from == "selection":
+        note = f"Answering for {resolved.carried_scheme} (selected on the left)."
+    elif resolved.carried_from == "chat":
+        note = f"Follow-up: assumed you mean {resolved.carried_scheme} from earlier in the chat."
 
     # "Does <fund> hold <company>?" with no match in the fund's full holdings list.
     # For a short follow-up ("What about Large Cap?") the company comes from the

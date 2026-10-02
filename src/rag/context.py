@@ -28,8 +28,9 @@ _FOLLOW_UP_RE = re.compile(
 class Resolved:
     schemes: list[str]  # schemes to filter retrieval by (named or carried over)
     search_text: str  # text used for retrieval (may include the previous question)
-    carried_scheme: str | None  # set when the fund came from earlier in the chat
+    carried_scheme: str | None  # set when the fund was not named in the question
     previous_question: str | None
+    carried_from: str | None = None  # "selection" (UI scheme picker) or "chat"
 
 
 def recent(history: Sequence[Turn]) -> list[Turn]:
@@ -46,13 +47,19 @@ def _last_scheme(history: Sequence[Turn]) -> str | None:
     return None
 
 
-def resolve(query: str, history: Sequence[Turn]) -> Resolved:
+def resolve(query: str, history: Sequence[Turn], selected: str | None = None) -> Resolved:
+    """`selected`: the scheme picked in the UI. Priority for a question that names
+    no fund: the selected scheme, then the most recent fund in the chat."""
     turns = recent(history)
     previous = turns[-1][0] if turns else None
     schemes = detect_schemes(query)
-    carried = None
+    carried = carried_from = None
     if not schemes:
-        carried = _last_scheme(turns)
+        if selected:
+            carried, carried_from = selected, "selection"
+        else:
+            carried = _last_scheme(turns)
+            carried_from = "chat" if carried else None
         if carried:
             schemes = [carried]
     # A short follow-up ("What about Large Cap?") borrows the previous question's
@@ -60,7 +67,7 @@ def resolve(query: str, history: Sequence[Turn]) -> Resolved:
     search_text = query
     if previous and _FOLLOW_UP_RE.match(query) and len(query.split()) <= 8:
         search_text = f"{previous} {query}"
-    return Resolved(schemes, search_text, carried, previous)
+    return Resolved(schemes, search_text, carried, previous, carried_from)
 
 
 def transcript(history: Sequence[Turn]) -> str:
