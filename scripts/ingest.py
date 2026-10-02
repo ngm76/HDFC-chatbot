@@ -29,6 +29,7 @@ from src.ingest.chunk import chunk_documents  # noqa: E402
 from src.ingest.embed import embed_texts  # noqa: E402
 from src.ingest.load import DEFAULT_SOURCES, Document, load_corpus  # noqa: E402
 from src.ingest.store import CHROMA_DIR, COLLECTION_NAME, rebuild_collection  # noqa: E402
+from src.schemes import SCHEMES, SHARED_SCHEME  # noqa: E402
 
 
 def update_fetched_at(sources_csv: Path, docs: list[Document]) -> int:
@@ -78,6 +79,41 @@ REQUIRED_SCHEMES = {
 FORBIDDEN_TEXT = {"scheme_page": r"since inception|Scheme Returns|Historical Performance"}
 
 
+# Fact cards every scheme must have after chunking (PRD §4 question types + A1 extras).
+REQUIRED_CARDS = ("expense_ratio", "exit_load", "min_sip", "riskometer", "benchmark", "nav",
+                  "aum", "fund_managers", "holdings", "holdings_breakdown", "overview")
+REQUIRED_CARDS_ELSS = ("lock_in",)
+REQUIRED_SHARED = ("statement_steps", "riskometer_levels", "definition")
+# A returns figure in an indexed chunk (PRD: no performance claims). Matches e.g.
+# "Returns (%) 20.34", "CAGR 12.5%", "since inception 13.18%", "15% returns".
+RETURN_FIGURE_RE = re.compile(
+    r"\b(returns?|CAGR|XIRR)\b[^.\n]{0,20}?(?:\(%\))?\s*[:\-]?\s*-?\d+(?:\.\d+\s*%?|\s*%)"
+    r"|\bsince inception\b[^.\n]{0,15}?\d+(?:\.\d+)?\s*%"
+    r"|\d+(?:\.\d+)?\s*%\s*(?:p\.?a\.?\s*)?(?:returns?|CAGR)\b",
+    re.I,
+)
+
+
+def card_problems(chunks) -> list[str]:
+    problems = []
+    for scheme in SCHEMES:
+        fields = {c.field for c in chunks if c.scheme == scheme}
+        required = REQUIRED_CARDS + (REQUIRED_CARDS_ELSS if "ELSS" in scheme else ())
+        missing = [f for f in required if f not in fields]
+        if missing:
+            problems.append(f"{scheme}: no card for {', '.join(missing)}")
+    shared = {c.field for c in chunks if c.scheme == SHARED_SCHEME}
+    missing = [f for f in REQUIRED_SHARED if f not in shared]
+    if missing:
+        problems.append(f"shared documents: no chunk for {', '.join(missing)}")
+    for c in chunks:
+        hit = RETURN_FIGURE_RE.search(c.text)
+        if hit:
+            problems.append(f"return figure in chunk {c.chunk_id} ({c.section_title[:60]}): "
+                            f"{hit.group(0)[:60]!r}")
+    return problems
+
+
 def strict_problems(result) -> list[str]:
     problems = [f"failed to load {e.url}: {e.message}" for e in result.errors]
     for doc in result.documents:
@@ -108,8 +144,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--check-only", action="store_true",
-        help="load and run the strict checks, then stop (no chunking, embedding or "
-             "index changes)",
+        help="load, chunk and run the strict checks, then stop (no embedding or index "
+             "changes)",
     )
     args = parser.parse_args()
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
@@ -125,19 +161,20 @@ def main() -> None:
             print(f"  FAIL {err.url} :: {err.message}")
         raise SystemExit("no documents loaded; index left unchanged")
 
+    print("2/4 chunking ...")
+    chunks = chunk_documents(result.documents)
     if args.strict or args.check_only:
-        problems = strict_problems(result)
+        problems = strict_problems(result) + card_problems(chunks)
         for problem in problems:
             print(f"  STRICT: {problem}")
         if problems:
             raise SystemExit("strict mode: refusing to publish incomplete data; index left unchanged")
         if args.check_only:
+            per_field = Counter(c.field or "(none)" for c in chunks)
             print(f"check passed: {len(result.documents)} pages loaded "
-                  f"({len(result.stale)} from last good copy); index not touched")
+                  f"({len(result.stale)} from last good copy), {len(chunks)} chunks; index not touched")
+            print("  chunks per field: " + ", ".join(f"{f} {n}" for f, n in per_field.most_common()))
             return
-
-    print("2/4 chunking ...")
-    chunks = chunk_documents(result.documents)
 
     print(f"3/4 embedding {len(chunks)} chunks ...")
     vectors = embed_texts([c.text for c in chunks])

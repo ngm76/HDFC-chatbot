@@ -68,7 +68,7 @@ flowchart LR
 | Source registry | URLs with publisher, doc type, scheme, question types, freshness limit, role, ingest date | `data/sources.csv`, `data/schemes.md` | ✅ official, 24 + 2 help (12) |
 | Scheme names | Canonical names, aliases, former names, categories | `src/schemes.py` | ✅ partial · ⬜ aliases (15) |
 | Loader | Fetch HTML/PDF/.xlsx, extract main text, clean HDFC scheme pages, allowlist, raw cache, keep last good copy | `src/ingest/load.py` | ✅ (13) |
-| Card builders | Parse each document type into fact cards | `src/ingest/groww.py` (Groww) · ⬜ official builder | ✅ Groww · ⬜ official (14) |
+| Card builders | Parse each document type into fact cards | `src/ingest/official.py` (· `groww.py` for the MVP corpus) | ✅ (14) |
 | Generic chunker | Heading-aware recursive split for prose documents | `src/ingest/chunk.py` | ✅ |
 | Embedder | MiniLM-L6-v2 via ONNX Runtime, 384-dim, normalized | `src/ingest/embed.py` | ✅ |
 | Vector store | Persistent Chroma `hdfc_mf_faq`, cosine, idempotent rebuild | `src/ingest/store.py`, `chroma_compat.py` | ✅ |
@@ -170,13 +170,13 @@ For example: *"HDFC Small Cap Fund Direct Growth: Expense ratio (TER, total expe
 | Document type | Strategy | Cards / chunks | Status |
 |---|---|---|---|
 | Groww scheme page | Label/value parser | NAV, TER, AUM, min SIP and lump sum, exit load and history, stamp duty, tax, riskometer, benchmark, objective, managers and profiles, holdings and holdings analysis, fund house, registrar, overview | ✅ (replaced in Part B) |
-| HDFC scheme page | Field parser | TER (Direct/Regular), exit load, min SIP, riskometer, benchmark, AUM, managers (A1) | ⬜ 14 |
-| KIM / SID | Heading-aware split + field isolation | Exit load (incl. tiers), min SIP, **ELSS lock-in** | ⬜ 14 |
-| Monthly factsheet | Per-fund page attribution (fund-name headings) + field cards | NAV with "as on" date, TER, AUM, managers, holdings, holdings analysis (A1) | ✅ attribution · ⬜ cards 14 |
-| TER disclosure | Table parser | TER per scheme and plan | ⬜ 14 |
-| Statement pages | Step-list chunks | How to download account / capital-gains statements, CAS | ⬜ 14 |
-| SEBI / AMFI | Heading-aware sections | Riskometer levels, ELSS and SIP basics, investor education | ⬜ 14 |
-| Holdings analysis | Computed at ingest from listed weights, labelled "calculated" | Asset class, instrument type, sector | ✅ (A1) |
+| HDFC scheme page | Field parser | Exit load, min SIP, riskometer, benchmark, AUM, lock-in, entry load, managers, inception, factual FAQs, glossary (A1) | ✅ 14 |
+| KIM | Labelled sections (two KIM layouts), stopping before any returns table | Full exit-load rules (incl. tiers), lump-sum minimums, **ELSS lock-in rule**, former name | ✅ 14 |
+| Monthly factsheet | Per-fund block (heading → Grand Total), field cards; returns and risk-ratio tables skipped | Direct NAV with "as on" date, objective, inception, manager details, holdings, holdings analysis (A1) | ✅ 14 |
+| TER disclosure | Workbook rows, latest day per scheme | Total TER Direct (with components) and Regular | ✅ 14 |
+| Statement pages | Generic sections, field `statement_steps` | How to get account / capital-gains statements, CAS | ✅ 14 |
+| SEBI / AMFI | Generic sections, fields `riskometer_levels` / `education` | Riskometer levels, ELSS and SIP basics, investor education | ✅ 14 |
+| Holdings analysis | Asset mix and instrument split from the factsheet's stated subtotals; sector split calculated and labelled | Asset class, instrument type, sector | ✅ (A1) |
 
 **Generic splitter** (prose): heading-aware recursive split, 1,600–3,200 chars, ~12%
 overlap, separators `\n## `, `\n# `, `\n\n`, `\n`, `. `, space; fee tables kept whole or
@@ -188,13 +188,13 @@ split by rows with headers repeated.
 |---|---|
 | `chunk_id` | Stable id: hash(url + field/label) for cards, hash(url + offset) for prose |
 | `url` | The citation (most specific page, FR-7) |
-| `publisher` ⬜ | HDFC MF / SEBI / AMFI; source label |
+| `publisher` | HDFC MF / SEBI / AMFI; source label |
 | `scheme` | Retrieval filter; `ALL` for shared documents |
-| `plan` ⬜ | Direct / Regular (FR-3) |
+| `plan` | `Direct Plan - Growth` for plan-specific facts (FR-3) |
 | `doc_type` | scheme_page, kim, sid, factsheet, ter, statement_guide, education, riskometer |
 | `field` | Fact type (`expense_ratio`, `exit_load`, `lock_in`, …); drives routing and evaluation |
 | `section_title` | Readable label, prompt context |
-| `doc_date` ⬜ | Date the document states (e.g. factsheet month); conflicts and freshness |
+| `doc_date` | Date the document states (e.g. factsheet "as on", TER day, KIM date); conflicts and freshness |
 | `fetched_at` | Ingest date: the freshness line |
 | `amc` | `HDFC` |
 

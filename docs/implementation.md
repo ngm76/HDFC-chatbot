@@ -59,8 +59,8 @@ that phase: fix the loader/registry, record the gap, then continue.
 | 11 | Docs baseline for the new PRD | B | ✅ Done |
 | 12 | Official source registry (~22 pages) | B | ✅ Done |
 | 13 | Loading official sources | B | ✅ Done |
-| 14 | Chunking official documents | B | ⬜ Next |
-| 15 | Intent + guards per PRD §6 | B | ⬜ |
+| 14 | Chunking official documents | B | ✅ Done |
+| 15 | Intent + guards per PRD §6 | B | ⬜ Next |
 | 16 | Retrieval re-tune | B | ⬜ |
 | 17 | Response template + validator | B | ⬜ |
 | 18 | Freshness + refresh | B | ⬜ |
@@ -301,9 +301,35 @@ is one retrievable card that names its scheme, plan and source date.
 - After this phase, a full `python scripts/ingest.py --refresh --strict` rebuild
   replaces the local Groww index; push to Render only once it passes.
 
+**As built (2026-10-02)**
+- `src/ingest/official.py` builds the cards; `chunk.py` dispatches by document type,
+  tags prose chunks (`statement_steps`, `riskometer_levels`, `education`), keeps one
+  copy of the shared glossary and adds one overview card per scheme. Chunks carry
+  `publisher`, `plan` and `doc_date`.
+- Primary source per fact (no conflicting duplicates): expense ratio = TER file
+  (latest day, Direct + Regular); exit load, min SIP, riskometer, benchmark, AUM,
+  lock-in, managers = scheme page; NAV, holdings, holdings analysis, manager
+  details, objective = factsheet; full exit-load rules, lump-sum minimums, ELSS
+  lock-in rule, former name = KIM. The factsheet's expense ratio (base expense ratio,
+  a different basis) and its exit load (a figure lost in PDF extraction) are not used.
+- Holdings analysis: the asset mix now uses the factsheet's own subtotals (they
+  reconcile to its 100.00 Grand Total for all five funds); only the sector split is
+  calculated, and labelled so.
+- Known data limit: the ELSS factsheet page loses its option labels in PDF text, so
+  its NAV card states both Direct values and says which is which can't be read.
+- Strict build: required cards per scheme (7 question types + NAV, AUM, holdings,
+  holdings analysis, overview; ELSS lock-in), shared statement / riskometer /
+  definition chunks, and no chunk with a return figure (`RETURN_FIGURE_RE`).
+- Minimal routing so the new cards are reachable: statements → `statement_steps`,
+  lock-in → `lock_in`, lump sum → `min_lumpsum`, exit load also → `exit_load_rules`
+  (full re-tune in Phase 16). Eval expectations updated to official wording.
+- Results: 249 chunks; fund × field matrix 50/50 top-1; gold set 20/20 retrieved,
+  20/20 answered with the fact, 20/20 citing an official page (Groq); guards 58/58;
+  Phase 13 loader tests 5/5.
+
 **Done when**
-- [ ] Each scheme has a card for each of the 7 question types it supports
-- [ ] Spot checks of extracted values against the PDFs pass for all 5 schemes (PRD §11 mitigation)
+- [x] Each scheme has a card for each of the 7 question types it supports (enforced by `--strict`)
+- [x] Spot checks of extracted values against the PDFs pass for all 5 schemes (PRD §11 mitigation): every number on every quoted card (920) is found in its source document; the one computed figure (BAF debt = sum of three debt subtotals) is labelled as such
 
 ---
 

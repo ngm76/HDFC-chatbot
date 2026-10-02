@@ -63,10 +63,12 @@ def fund_facts(scheme: str) -> FundFacts:
         facts.values[name] = value
 
     nav = facts.values.get("nav", "")
-    if ", as on " in nav:
+    if nav.startswith("₹") and ", as on " in nav:
         facts.nav, facts.nav_date = nav.split(", as on ", 1)
-    else:
+        facts.nav_date = facts.nav_date.split(" (")[0]
+    elif nav.startswith("₹"):
         facts.nav = nav
+    # else: the card states the NAV can't be read unambiguously (e.g. unlabelled options)
     holdings = facts.values.get("holdings", "")
     count = re.match(r"(\d[\d,]*) holdings in total", holdings)
     facts.holdings_count = count.group(1) if count else ""

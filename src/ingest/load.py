@@ -62,6 +62,7 @@ class Document:
     scheme: str
     doc_type: str
     fetched_at: str
+    publisher: str = ""
 
 
 @dataclass
@@ -445,6 +446,7 @@ def load_corpus(
             url = (row.get("url") or "").strip()
             scheme = (row.get("scheme") or "").strip()
             doc_type = (row.get("doc_type") or "").strip()
+            publisher = (row.get("publisher") or "").strip()
             if not _host_allowed(url):
                 result.skipped_disallowed += 1
                 result.errors.append(
@@ -480,6 +482,7 @@ def load_corpus(
                     scheme=scheme,
                     doc_type=doc_type,
                     fetched_at=fetched_at,
+                    publisher=publisher,
                 )
             )
 

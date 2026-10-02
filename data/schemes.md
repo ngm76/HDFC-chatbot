@@ -65,6 +65,20 @@ Every type is covered for every scheme where it applies (lock-in applies to ELSS
 
 ## Known gaps and notes
 
+- **Which document answers what (Phase 14):** expense ratio from the TER file; exit
+  load, min SIP, riskometer, benchmark, AUM, lock-in and managers from the scheme
+  pages; NAV, holdings and holdings analysis from the factsheet; full exit-load
+  rules, lump-sum minimums and the ELSS lock-in rule from the KIMs.
+- **ELSS NAV:** the factsheet's PDF text lists two Direct Plan NAVs (₹94.510 and
+  ₹1,512.010) without the Growth / IDCW labels, so the card states both and does not
+  guess; the scheme page shows NAV only via JavaScript.
+- **Factsheet expense ratio not used:** it is the base expense ratio excluding
+  brokerage and transaction costs (e.g. Large Cap Direct 0.98%), a different basis
+  from the TER file's total TER (1.04%).
+- **Managers differ by date:** the scheme page lists today's managers; the factsheet
+  lists managers as on its date (e.g. new names effective September 2026). Both are
+  indexed with their source and date.
+
 - **Allowlist:** `mutualfundssahihai.com` and `investor.sebi.gov.in` (covered by the
   `sebi.gov.in` suffix) must be on the loader allowlist. `mutualfundssahihai.com` is
   not there yet, so it is added in Phase 13.

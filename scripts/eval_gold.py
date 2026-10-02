@@ -25,8 +25,8 @@ from src.rag.generate import generator_mode  # noqa: E402
 from src.rag.pipeline import ask  # noqa: E402
 from src.rag.retrieve import TOP_K, retrieve  # noqa: E402
 
-# The corpus is the five Groww scheme pages named in docs/problemstatement.txt.
-CORPUS_HOSTS = ("groww.in",)
+# The official corpus (PRD §4 allowlist): answers must cite one of these hosts.
+CORPUS_HOSTS = ("hdfcfund.com", "sebi.gov.in", "amfiindia.com", "mutualfundssahihai.com")
 
 # Figures that change with each data refresh (NAV daily; AUM, TER and holdings
 # monthly). For these, a test expects the value on the *current* fact card
@@ -35,15 +35,14 @@ CORPUS_HOSTS = ("groww.in",)
 CARD = "card"
 
 # (category, question, regex the answer must match | "card:<field>", expected in words)
-# Stable facts were read off the Groww pages; volatile ones come from the current cards.
+# Stable facts were read off the HDFC MF documents; volatile ones come from the current cards.
 GOLD: list[tuple[str, str, str, str]] = [
     ("Expense ratio", "What is the expense ratio of HDFC Large Cap Fund Direct Growth?",
      "card:expense_ratio", "current TER"),
     ("Expense ratio", "What is the expense ratio of HDFC Small Cap Fund Direct Growth?",
      "card:expense_ratio", "current TER"),
-    # Not on Groww's ELSS page: expected to miss in a Groww-only corpus.
     ("Lock-in", "What is the lock-in for HDFC ELSS Tax Saver?",
-     r"\b(3|three)[\s-]*years?\b", "3 years (not on the Groww page)"),
+     r"\b(3|three)[\s-]*years?\b", "3 years (ELSS KIM and scheme page)"),
     ("Minimum SIP", "What is the minimum SIP amount for HDFC ELSS Tax Saver?",
      r"(₹|Rs\.?)\s*500\b", "₹500"),
     ("Minimum SIP", "What is the minimum SIP amount for HDFC Balanced Advantage Fund?",
@@ -58,9 +57,9 @@ GOLD: list[tuple[str, str, str, str]] = [
      r"BSE\s*250\s*Small\s*Cap", "BSE 250 SmallCap TRI"),
     ("Benchmark", "What is the benchmark of HDFC Flexi Cap Fund?",
      r"NIFTY\s*500", "NIFTY 500 TRI"),
-    # Groww pages only name the registrar (CAMS); there is no download guide.
+    # HDFC MF's capital-gains statement guide: request it from CAMS or KFintech.
     ("Statement", "How do I download my capital gains statement?",
-     r"\b(CAMS|camsonline)\b", "via the registrar CAMS (camsonline.com)"),
+     r"\b(CAMS|KFintech)\b", "request it from CAMS or KFintech (HDFC MF guide)"),
     ("AUM", "What is the fund size of HDFC Small Cap Fund?", "card:aum", "current AUM"),
     ("AUM", "What is the AUM of HDFC Large Cap Fund?", "card:aum", "current AUM"),
     ("NAV", "What is the NAV of HDFC Flexi Cap Fund Direct Growth?", "card:nav", "current NAV"),
@@ -73,12 +72,13 @@ GOLD: list[tuple[str, str, str, str]] = [
     ("Holdings", "what are the holdings in HDFC Balanced Advantage Fund",
      r"ICICI\s+Bank", "ICICI Bank Ltd 5.32% (top holding)"),
     ("Definition", "What is an expense ratio?",
-     r"fee\s+payable", "A fee payable to a mutual fund house for managing investments"),
-    # Holdings analysis: sums of the listed weights, computed at ingest.
+     r"costs\s+for\s+running\s+and\s+managing",
+     "the costs for running and managing a scheme, as a % of its average NAV"),
+    # Holdings analysis: the factsheet's stated portfolio subtotals.
     ("Holdings analysis", "Can you give me the holdings analysis of HDFC Balanced Advantage Fund?",
-     "card:holdings_breakdown", "current equity % (calculated)"),
+     "card:holdings_breakdown", "current equity % (factsheet subtotals)"),
     ("Holdings analysis", "What is the equity vs debt ratio of HDFC Small Cap Fund?",
-     "card:holdings_breakdown", "current equity % (calculated)"),
+     "card:holdings_breakdown", "current equity % (factsheet subtotals)"),
 ]
 
 
@@ -119,8 +119,8 @@ def resolve_pattern(question: str, pattern: str) -> tuple[str, str | None]:
     return card_pattern(schemes[0], pattern.split(":", 1)[1]) if schemes else (r"(?!x)x", None)
 
 
-# Retrieval matrix: every fund × every field. Values from the Groww pages ingested
-# 2026-09-27 (NAV as of 25 Sep 2026). field -> (question template, fact card field).
+# Retrieval matrix: every fund × every field. Stable values are read off the official
+# HDFC MF scheme pages (Phase 14 corpus, 2026-10-02). field -> question template.
 MATRIX_QUESTIONS: dict[str, str] = {
     "expense_ratio": "What is the expense ratio of {fund}?",
     "aum": "What is the fund size of {fund}?",
@@ -134,19 +134,19 @@ MATRIX_QUESTIONS: dict[str, str] = {
     "holdings_count": "How many holdings does {fund} have?",
 }
 # Volatile fields ("card") are checked against the fund's current card; the rest
-# are stable facts read off the Groww pages.
+# are stable facts read off the HDFC MF scheme pages.
 _VOLATILE = {"expense_ratio": CARD, "aum": CARD, "nav": CARD, "holdings": CARD,
              "holdings_count": CARD}
 MATRIX_FACTS: dict[str, dict[str, str]] = {
     "HDFC Large Cap Fund": {
-        **_VOLATILE, "min_sip": r"₹100\b", "exit_load": r"1% if redeemed within 1 year",
+        **_VOLATILE, "min_sip": r"₹100\b", "exit_load": r"1\.00% is payable if Units are redeemed.{0,30}within 1 year",
         "riskometer": r"Very High", "benchmark": r"NIFTY 100",
         "fund_managers": r"Rahul Baijal.*Dhruv Muchhal|Dhruv Muchhal.*Rahul Baijal",
     },
     "HDFC Flexi Cap Fund": {
-        **_VOLATILE, "min_sip": r"₹100\b", "exit_load": r"1% if redeemed within 1 year",
+        **_VOLATILE, "min_sip": r"₹100\b", "exit_load": r"1\.00% is payable if Units are redeemed.{0,30}within 1 year",
         "riskometer": r"Very High", "benchmark": r"NIFTY 500",
-        "fund_managers": r"Amit Ganatra.*Dhruv Muchhal|Dhruv Muchhal.*Amit Ganatra",
+        "fund_managers": r"Amit (B )?Ganatra.*Dhruv Muchhal|Dhruv Muchhal.*Amit (B )?Ganatra",
     },
     "HDFC ELSS Tax Saver Fund": {
         **_VOLATILE, "min_sip": r"₹500\b", "exit_load": r"\bNil\b",
@@ -154,7 +154,7 @@ MATRIX_FACTS: dict[str, dict[str, str]] = {
         "fund_managers": r"Amar Kalkundrikar.*Dhruv Muchhal|Dhruv Muchhal.*Amar Kalkundrikar",
     },
     "HDFC Small Cap Fund": {
-        **_VOLATILE, "min_sip": r"₹100\b", "exit_load": r"1% if redeemed within 1 year",
+        **_VOLATILE, "min_sip": r"₹100\b", "exit_load": r"1\.00% is payable if Units are redeemed.{0,30}within 1 year",
         "riskometer": r"Very High", "benchmark": r"BSE 250 SmallCap",
         "fund_managers": r"Chirag Setalvad.*Dhruv Muchhal|Dhruv Muchhal.*Chirag Setalvad",
     },
@@ -257,7 +257,7 @@ def main() -> None:
     n = len(GOLD)
     print(
         f"\n**Totals:** fact retrieved {totals['retrieved']}/{n} · answer contains fact "
-        f"{totals['answered']}/{n} · Groww source cited {totals['cited']}/{n}"
+        f"{totals['answered']}/{n} · official source cited {totals['cited']}/{n}"
     )
 
 

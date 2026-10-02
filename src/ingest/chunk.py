@@ -1,10 +1,14 @@
-"""Phase 3: split loaded documents into retrieval chunks (architecture §5).
+"""Split loaded documents into retrieval chunks (Phases 3 and 14, architecture §5).
 
-Groww scheme pages (the current corpus) are structured label/value pages, so
-they are chunked by field into self-contained fact cards (src/ingest/groww.py);
-the problem statement asks for a chunking strategy chosen from the data.
+The problem statement asks for a chunking strategy chosen from the data:
+- structured official documents (HDFC scheme pages, KIMs, the monthly factsheet,
+  the TER workbook) become one self-contained fact card per fact
+  (src/ingest/official.py), plus one overview card per scheme;
+- MVP Groww pages, if ever listed again, use src/ingest/groww.py;
+- prose documents (statement guides, SEBI / AMFI pages) use the generic path below,
+  tagged with a field for their document type (e.g. "statement_steps").
 
-Any other document uses the generic path below: heading-aware recursive character split. Loaded text is plain (HTML get_text /
+The generic path: heading-aware recursive character split. Loaded text is plain (HTML get_text /
 PDF extract_text), so headings are detected per line: markdown-style `#`,
 ALL-CAPS labels, HDFC scheme-name lines, and FAQ field labels (exit load,
 expense ratio, SIP, ...). Sections are then packed into chunks of
@@ -19,10 +23,11 @@ import argparse
 import hashlib
 import re
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 from src.ingest.groww import fact_cards, is_groww_url
 from src.ingest.load import Document
+from src.ingest.official import CARD_DOC_TYPES, OfficialCard, official_cards
 from src.schemes import SHARED_SCHEME, detect_schemes
 
 # ~400–800 tokens, using ~4 chars/token as the proxy.
@@ -108,7 +113,10 @@ class Chunk:
     section_title: str
     fetched_at: str
     amc: str = AMC
-    field: str = ""  # fact-card field for Groww pages (e.g. "expense_ratio"); "" otherwise
+    field: str = ""  # fact-card field (e.g. "expense_ratio"), or the prose doc type's field
+    publisher: str = ""  # HDFC MF / SEBI / AMFI ... (source label)
+    plan: str = ""  # "Direct Plan - Growth" for plan-specific facts
+    doc_date: str = ""  # ISO date the document states for the fact, if any
 
     def metadata(self) -> dict[str, str]:
         meta = asdict(self)
@@ -285,9 +293,46 @@ def _groww_chunks(doc: Document) -> list[Chunk]:
     ]
 
 
+# Field tag for every chunk of a prose document type (used for routing and checks).
+PROSE_FIELDS = {
+    "statement_guide": "statement_steps",
+    "riskometer": "riskometer_levels",
+    "education": "education",
+}
+
+
+def _short(scheme: str) -> str:
+    return scheme.removesuffix(" Direct Growth")
+
+
+def _card_chunk(doc: Document, card: OfficialCard) -> Chunk:
+    scheme = card.scheme
+    title = card.label if scheme == SHARED_SCHEME else f"{_short(scheme)}{PARENT_SEP}{card.label}"
+    return Chunk(
+        text=card.text,
+        chunk_id=_chunk_id(doc.url, f"{scheme}:{card.field}:{card.label}"),
+        url=doc.url,
+        scheme=scheme,
+        doc_type=doc.doc_type,
+        section_title=title,
+        fetched_at=doc.fetched_at,
+        field=card.field,
+        publisher=doc.publisher,
+        plan=card.plan,
+        doc_date=card.doc_date,
+    )
+
+
 def chunk_document(doc: Document) -> list[Chunk]:
     if is_groww_url(doc.url):
         return _groww_chunks(doc)
+    if doc.doc_type in CARD_DOC_TYPES:
+        return [_card_chunk(doc, c) for c in official_cards(doc.text, doc.doc_type, doc.scheme, doc.url)]
+    return [replace(c, field=PROSE_FIELDS.get(doc.doc_type, ""), publisher=doc.publisher)
+            for c in _generic_chunks(doc)]
+
+
+def _generic_chunks(doc: Document) -> list[Chunk]:
     text = doc.text
     pieces: list[tuple[int, str, str]] = []  # (start offset, text, section_title)
 
@@ -429,11 +474,54 @@ def _chunk_scheme(doc: Document, title: str) -> str:
     return schemes[0] if len(schemes) == 1 else doc.scheme
 
 
+# Overview card: the headline facts per scheme, gathered across its documents.
+OVERVIEW_FIELDS = (
+    ("NAV", "nav"), ("expense ratio", "expense_ratio"), ("fund size (AUM)", "aum"),
+    ("minimum SIP", "min_sip"), ("exit load", "exit_load"), ("lock-in", "lock_in"),
+    ("riskometer", "riskometer"), ("benchmark", "benchmark"), ("fund managers", "fund_managers"),
+)
+
+
+def _card_value(chunk: Chunk) -> str:
+    return chunk.text.split(": ", 2)[-1].rstrip(".")
+
+
+def _overviews(chunks: list[Chunk]) -> list[Chunk]:
+    out = []
+    for scheme in sorted({c.scheme for c in chunks if c.scheme != SHARED_SCHEME and c.field}):
+        cards = [c for c in chunks if c.scheme == scheme and c.field]
+        first = {}
+        for c in cards:
+            first.setdefault(c.field, c)
+        page = next((c for c in cards if c.doc_type == "scheme_page"), cards[0])
+        parts = [f"{label} {_card_value(first[f])}" for label, f in OVERVIEW_FIELDS if f in first]
+        if not parts:
+            continue
+        label = "Key facts (overview of this fund's main facts from its official documents)"
+        out.append(replace(
+            page,
+            text=f"{scheme}: {label}: {'; '.join(parts)}.",
+            chunk_id=_chunk_id(page.url, f"{scheme}:overview"),
+            section_title=f"{_short(scheme)}{PARENT_SEP}Key facts",
+            field="overview",
+            doc_date="",
+        ))
+    return out
+
+
 def chunk_documents(docs: list[Document]) -> list[Chunk]:
     chunks: list[Chunk] = []
+    seen_definitions: set[str] = set()
     for doc in docs:
-        chunks.extend(chunk_document(doc))
-    return chunks
+        for chunk in chunk_document(doc):
+            # Each scheme page repeats the same glossary; keep the first copy.
+            if chunk.field == "definition":
+                if chunk.section_title in seen_definitions:
+                    continue
+                seen_definitions.add(chunk.section_title)
+            chunks.append(chunk)
+    # Overview cards first, so a "tell me about X" question finds them.
+    return _overviews(chunks) + chunks
 
 
 def _cli() -> None:
