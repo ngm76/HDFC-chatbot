@@ -1,6 +1,8 @@
-# Daily data refresh: trigger a Render redeploy, whose build re-fetches the Groww
-# pages and rebuilds the vector index (see render.yaml). Free on GitHub Actions and
-# works while the free Render service is asleep.
+# Daily data refresh: trigger a Render redeploy, whose build re-fetches the official
+# sources and rebuilds the vector index (see render.yaml), and check every source
+# link plus the HDFC MF hub pages for newer factsheet / TER / KIM editions
+# (scripts/check_links.py; broken links fail the job, new editions show as warnings).
+# Free on GitHub Actions and works while the free Render service is asleep.
 #
 # Setup: Render dashboard → the service → Settings → Deploy Hook → copy the URL,
 # then GitHub → this repo → Settings → Secrets and variables → Actions →
@@ -26,4 +28,16 @@ jobs:
             exit 1
           fi
           curl --fail --silent --show-error -X POST "$HOOK"
-          echo "Redeploy triggered; Render rebuilds the index with fresh Groww data."
+          echo "Redeploy triggered; Render rebuilds the index from the official sources."
+
+  check-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check source links and new editions
+        run: |
+          pip install --quiet httpx==0.28.1
+          python scripts/check_links.py

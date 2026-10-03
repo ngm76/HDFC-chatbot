@@ -63,9 +63,9 @@ that phase: fix the loader/registry, record the gap, then continue.
 | 15 | Intent + guards per PRD §6 | B | ✅ Done |
 | 16 | Retrieval re-tune | B | ✅ Done |
 | 17 | Response template + validator | B | ✅ Done |
-| 18 | Freshness + refresh | B | ⬜ Next |
+| 18 | Freshness + refresh | B | ✅ Done |
 | 19 | UI per PRD §9 | B | ✅ Done |
-| 20 | Golden set (200) + evaluation report | B | ⬜ |
+| 20 | Golden set (200) + evaluation report | B | ⬜ Next |
 | 21 | Documents + deliverables | B | ⬜ |
 | 22 | Release (test, push, Render redeploy) | B | ⬜ |
 
@@ -482,9 +482,26 @@ is one retrievable card that names its scheme, plan and source date.
   URL, run in the scheduled workflow.
 - **Keep the last good version** when a fetch fails (Phase 13), with the build log as the alert.
 
+**As built (2026-10-03)**
+- `scripts/check_links.py`: fetches every `sources.csv` URL (27: ingest, reference,
+  help) and fails on 4xx/5xx or network errors; scans the HDFC MF hub pages (TER
+  reports, factsheets, KIMs), which list the current files in their HTML, and warns
+  when a newer edition than the registered one is listed. Added to the daily
+  workflow as a separate `check-links` job (GitHub annotations).
+- Build log: `STALE EDITION` warning when the factsheet or TER file is older than its
+  freshness limit (35 / 7 days, by the date it states). A warning, not a failure, so
+  a late edition does not stop the daily refresh. KIMs are revised on HDFC's own
+  schedule, so their age is not a signal; a newer KIM is caught by the hub scan.
+- KIM editions updated from the hub: all five now dated 21 Nov 2025 (ELSS, Large Cap,
+  Small Cap and Balanced Advantage replaced; the date parser accepts `%2C`).
+- Keep-the-last-good-copy (Phase 13) and the daily Render redeploy stay as built;
+  the monthly checklist is in README.md (Phase 21).
+- Results: 27/27 links healthy, no newer editions; rebuild strict-clean (249 chunks);
+  matrix 50/50, gold retrieval 20/20, guards 92/92.
+
 **Done when**
-- [ ] A simulated fetch failure keeps the previous data and reports it
-- [ ] Each answer's freshness line matches its cited page's ingest date
+- [x] A simulated fetch failure keeps the previous data and reports it
+- [x] Each answer's freshness line matches its cited page's ingest date
 
 ---
 

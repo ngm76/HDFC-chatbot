@@ -20,6 +20,7 @@ import re
 import sys
 import time
 from collections import Counter
+from datetime import date
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -107,6 +108,34 @@ def card_problems(chunks) -> list[str]:
     return problems
 
 
+# KIMs are revised on their own schedule; a newer KIM is detected by check_links.py instead.
+DATED_DOC_TYPES = ("factsheet", "ter")
+
+
+def stale_editions(sources_csv: Path, chunks, today: date | None = None) -> list[str]:
+    """Dated documents (factsheet, TER file) older than their freshness limit
+    (PRD §8). A warning in the build log, not a failure: a late edition must not stop
+    the daily refresh of everything else. Fix: update the row's URL (README checklist)."""
+    with sources_csv.open(encoding="utf-8", newline="") as handle:
+        rows = {r["url"]: r for r in csv.DictReader(handle)}
+    dates: dict[str, str] = {}
+    for c in chunks:
+        if c.doc_type in DATED_DOC_TYPES and c.doc_date:
+            dates[c.url] = max(dates.get(c.url, ""), c.doc_date)
+    warnings = []
+    for url, as_of in dates.items():
+        row = rows.get(url, {})
+        limit = (row.get("freshness_limit_days") or "").strip()
+        if not limit.isdigit():
+            continue
+        age = ((today or date.today()) - date.fromisoformat(as_of)).days
+        if age > int(limit):
+            warnings.append(f"{row.get('label') or url} is dated {as_of} ({age} days; limit "
+                            f"{limit}): check its hub page for a newer edition and update "
+                            "data/sources.csv")
+    return warnings
+
+
 def strict_problems(result) -> list[str]:
     problems = [f"failed to load {e.url}: {e.message}" for e in result.errors]
     for doc in result.documents:
@@ -156,6 +185,8 @@ def main() -> None:
 
     print("2/4 chunking ...")
     chunks = chunk_documents(result.documents)
+    for warning in stale_editions(args.sources, chunks):
+        print(f"  STALE EDITION: {warning}")
     if args.strict or args.check_only:
         problems = strict_problems(result) + card_problems(chunks)
         for problem in problems:

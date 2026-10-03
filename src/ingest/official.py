@@ -264,7 +264,7 @@ def _kim_section(lines: list[str], start_re: re.Pattern[str]) -> str:
 
 
 def kim_date(url: str) -> str:
-    m = re.search(r"dated%20(\w+)%20(\d{1,2}),%20(\d{4})", url)
+    m = re.search(r"dated%20(\w+)%20(\d{1,2})(?:,|%2C)%20(\d{4})", url)
     return _iso(f"{m.group(1)} {m.group(2)}, {m.group(3)}") if m else ""
 
 
