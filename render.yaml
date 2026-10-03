@@ -1,9 +1,10 @@
 # Render Blueprint: one free web service.
 #
 # Render's disk is ephemeral and free services have no persistent disk, so the
-# vector index is rebuilt on every deploy: the build fetches the five Groww pages,
-# downloads the embedding model and builds Chroma. `--strict` fails the build on a
-# failed or incomplete page, so Render keeps serving the previous deploy instead.
+# vector index is rebuilt on every deploy: the build fetches the official sources in
+# data/sources.csv, downloads the embedding model and builds Chroma. `--strict` fails
+# the build on a failed or incomplete page (or a missing fact card), so Render keeps
+# serving the previous deploy instead.
 # A daily redeploy (.github/workflows/refresh-data.yml → Render deploy hook)
 # keeps the data current.
 services:

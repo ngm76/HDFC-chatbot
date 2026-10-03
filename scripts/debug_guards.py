@@ -44,6 +44,13 @@ CASES: list[tuple[str, str, list[str], list[str]]] = [
     ("What is the difference between direct and regular plan?", "allow", [], []),
     ("Exit loads of Small Cap vs Flexi Cap?", "allow", [], []),  # factual comparison
     ("Which has lower risk, so should I pick it?", "advice", [], []),  # merit comparison
+    ("Which has a better riskometer level, Small Cap or Large Cap?", "advice", [], []),
+    ("Is HDFC Flexi Cap better than HDFC Large Cap?", "advice", [], []),
+    ("Is HDFC Large Cap Fund the right choice for me?", "advice", [], []),
+    ("Which has the lower expense ratio, Small Cap or Flexi Cap?", "allow", [], []),  # factual
+    ("How much would 10000 invested in HDFC Flexi Cap 5 years ago be worth now?", "performance", [], []),
+    ("What is the benchmark of HDFC Large Cap Fund? Is it NIFTY 100 Total Return Index?", "allow", [], []),
+    ("What is NAV?", "allow", [], []),  # short definition, no fund needed
     ("HDFC Mid Cap Opportunities exit load?", "out_of_scope", [], []),  # not in corpus
     ("hdfc smallcap exit load", "allow", [], []),
     ("BAF minimum SIP", "allow", [], []),

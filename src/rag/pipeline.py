@@ -114,11 +114,13 @@ def ask(
     # one official page states the fact for all of them; otherwise answer the first
     # and invite a second question (each answer keeps a single citation).
     schemes = resolved.schemes
+    focus = None  # the one scheme to answer for when a comparison is narrowed
     if len(schemes) > 1 and not one_page_covers(schemes, intent_fields(query)):
         rest = ", ".join(short_name(s) for s in schemes[1:])
         note = (f"Answered for {short_name(schemes[0])}; no single official page covers "
                 f"both, so please ask about {rest} separately.")
         schemes = schemes[:1]
+        focus = schemes[0]
         resolved = replace(resolved, schemes=schemes)
 
     chunks = retrieve(resolved.search_text, schemes=resolved.schemes or None)
@@ -128,7 +130,9 @@ def ask(
     # Short follow-ups are passed with the question they follow up, so the model
     # reads "What about Large Cap?" as "Does Large Cap hold Infosys?".
     gen_query = query
-    if resolved.search_text != query and resolved.previous_question:
+    if focus:
+        gen_query = f"{query} (answer this only for {short_name(focus)})"
+    elif resolved.search_text != query and resolved.previous_question:
         gen_query = (
             f'{query} (follow-up to the previous question: "{resolved.previous_question}"; '
             "answer that question for the fund named here)"

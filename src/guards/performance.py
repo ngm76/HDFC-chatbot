@@ -13,7 +13,8 @@ from src.schemes import detect_schemes
 _PERFORMANCE_RE = re.compile(
     r"|".join(
         [
-            r"(?<!tax\s)(?<!income\s)(?<!itr\s)\breturns?\b(?!\s+filing)",
+            # Not "tax return" / "return filing", nor "Total Return(s) Index" (a benchmark name)
+            r"(?<!tax\s)(?<!income\s)(?<!itr\s)(?<!total\s)\breturns?\b(?!\s+(filing|index))",
             r"\bcagr\b",
             r"\bxirr\b",
             r"\b(annuali[sz]ed|absolute|trailing|historical|past)\s+(return|performance|growth)",
@@ -26,6 +27,7 @@ _PERFORMANCE_RE = re.compile(
             r".*\b(\d+\s*(years?|yrs?)|since\s+inception)\b",
             r"\bnav\s+(growth|increase|change|history)\b",
             r"\b(rank(ing|ings|ed)?|star\s+rating|rated\s+\d)\b",
+            r"\bbe\s+worth\b|\bworth\s+(now|today)\b|\binvested\b.*\b\d+\s*(years?|yrs?)\s+ago\b",
             # Not "capital gains": statements and taxation are in scope.
         ]
     ),

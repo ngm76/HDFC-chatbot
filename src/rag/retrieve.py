@@ -116,8 +116,9 @@ def expand_query(query: str) -> str:
     return f"{query} ({'; '.join(extra)})" if extra else query
 
 
-# "What is ELSS?" / "What is a SIP?": a short question about a term, no fund named.
-_SHORT_WHAT_IS_RE = re.compile(r"^\s*what\s+(is|are)\s+(an?\s+)?[\w\s-]{2,30}\??\s*$", re.I)
+# "What is NAV?" / "What is ELSS?": a short question about a term (not "what is THE
+# exit load", which asks for a fund's value).
+_SHORT_WHAT_IS_RE = re.compile(r"^\s*what\s+(is|are)\s+(?!the\b)(an?\s+)?[\w\s-]{2,30}\??\s*$", re.I)
 _RISK_MEANING_RE = re.compile(r"\b(riskometer|risk[\s-]?o[\s-]?meter|risk\s+level)", re.I)
 _PLAN_EXPLAINER_RE = re.compile(
     r"\bdirect\s+(vs\.?|versus|and|or)\s+regular\b|\bregular\s+(vs\.?|versus|and|or)\s+direct\b|"

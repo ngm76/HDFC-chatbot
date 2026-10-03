@@ -66,7 +66,7 @@ that phase: fix the loader/registry, record the gap, then continue.
 | 18 | Freshness + refresh | B | ✅ Done |
 | 19 | UI per PRD §9 | B | ✅ Done |
 | 20 | Golden set (200) + evaluation report | B | ⬜ Next |
-| 21 | Documents + deliverables | B | ⬜ |
+| 21 | Documents + deliverables | B | ✅ Done |
 | 22 | Release (test, push, Render redeploy) | B | ⬜ |
 
 Sequence for Part B: **12 → 13 → 14 → 15 → 16 → 17 → 18 → 19 → 20 → 21 → 22**.
@@ -583,8 +583,25 @@ is one retrievable card that names its scheme, plan and source date.
 - `docs/eval_notes.md`: a new round, linking to the evaluation report.
 - `.env.example` and `render.yaml` if the build changes.
 
+**As built (2026-10-03)**
+- `docs/architecture.md` v3.0 (as built): corpus and allowlist, per-document
+  chunking, routing, intent order, template and validator, context, freshness, UI,
+  deployment, evaluation, failure modes, PRD mapping.
+- `README.md` rewritten: scope and sources, handling table, architecture summary,
+  setup, keeping data current (monthly checklist), how to add a scheme alias, tests
+  table, how to run the golden-set evaluation, Render, generator, disclaimer,
+  privacy, known limits.
+- `docs/sample_qa.md` regenerated from the live pipeline (Groq): 27 examples, at
+  least two per intent, plus every §8 edge case, in the §7 template.
+- `docs/eval_notes.md`: round 9 (official corpus, golden-set findings and fixes).
+- `render.yaml` comment updated; `.env.example` unchanged (no new settings).
+- `data/sources.csv` is the source-list deliverable (with readable labels).
+- Fixes found while writing samples: a narrowed comparison now tells the generator
+  to answer for the first scheme only; the sample script retries once after a
+  generator error.
+
 **Done when**
-- [ ] All six PRD §12 deliverables exist and are consistent with each other
+- [x] All six PRD §12 deliverables exist and are consistent with each other
 
 ---
 

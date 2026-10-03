@@ -29,6 +29,10 @@ _DEFINITION_RE = re.compile(
     re.I,
 )
 
+# "What is NAV?" / "What is ELSS?": a short question about a term (not "what is THE
+# exit load", which asks for a fund's value).
+_SHORT_WHAT_IS_RE = re.compile(r"^\s*what\s+(is|are)\s+(?!the\b)(an?\s+)?[\w\s-]{2,30}\??\s*$", re.I)
+
 _FUND_NAMES = ", ".join(n.removesuffix(" Direct Growth") for n in SCHEME_CATEGORIES)
 CLARIFY_TEXT = (
     f"Which fund do you mean? I cover five HDFC Mutual Fund schemes: {_FUND_NAMES}. "
@@ -43,6 +47,7 @@ def needs_fund(text: str) -> bool:
         and not detect_schemes(text)
         and len(fuzzy_schemes(text)) != 1
         and not _DEFINITION_RE.search(text)
+        and not _SHORT_WHAT_IS_RE.match(text)
     )
 
 

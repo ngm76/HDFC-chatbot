@@ -27,6 +27,11 @@ _ADVICE_RE = re.compile(
             r"\bwhich\s+(fund|scheme|one|option)\s+(should|to|do\s+you)\b",
             r"\bwhich\b.{0,60}\b(is|are|would\s+be)\s+(better|best|safer|right|suitable)\b",
             r"\b(better|best)\s+for\s+(me|my|us)\b",
+            r"\b(better|worse|safer|riskier)\s+than\b",
+            # Merit comparison (PRD §8); returns comparisons go to the performance guard.
+            r"\bwhich\b(?!.*\b(returns?|perform\w*|cagr)\b).{0,40}\b(better|best|safer|safest)\b",
+            r"\b(right|good|best|ideal|suitable|better|wise)\b.{0,30}\bfor\s+(me|my|us)\b",
+            r"\b(right|good|best|ideal|wise|smart)\s+(choice|option|pick|fit|bet)\b",
             r"\bso\s+should\s+i\b|\bshould\s+i\s+pick\b",
             r"\b(recommend|suggest|advise|advice)\b",
             r"\b(suitable|right|good|appropriate|best|better|ideal)\s+(for|to)\s+(me|my|us|a\s+\d+)",

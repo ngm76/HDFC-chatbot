@@ -1,4 +1,4 @@
-# Evaluation notes (Phase 10)
+# Evaluation notes
 
 Gold-set evaluation of retrieval and answers, per architecture §5 ("tune after
 first retrieval eval") and §12. Reproduce with:
@@ -14,6 +14,36 @@ The script checks three things:
 - **Answer has fact:** does the final answer text contain it?
 - **Official citation:** is the answer's single link on hdfcfund.com / amfiindia.com / sebi.gov.in?
   Refusals and "not in this prototype" replies count as ❌ here.
+
+## Round 9: official corpus and the PRD (Phases 12–20), 2026-10-03
+
+The corpus moved from the five Groww pages to 24 official pages (HDFC MF, SEBI,
+AMFI / Mutual Funds Sahi Hai; `data/sources.csv`), with fact cards per document
+type, the PRD §6 guards, the §7 template and FR-4 validator, and the §9 UI. The
+launch gate is now the 200-query golden set: see
+[evaluation_report.md](evaluation_report.md) (`scripts/eval_golden.py`).
+
+| Check | Before (Groww, round 8) | Now (official) |
+|---|---|---|
+| Fund × field matrix (top-1 right card) | 50/50 | 50/50 |
+| Gold set (20): fact retrieved / answered / cited (Groq) | 17/18 retrieved; ELSS lock-in and statement steps missing | 20/20 · 20/20 · 20/20 |
+| Guard suite | 58/58 | 99/99 (every §6 example and §8 edge case) |
+| Golden set, free mode (200, no LLM) | — | intent 200/200; fact retrieved 120/120; refusal recall 50/50; precision 100%; format 200/200; PII leaks 0; fabricated 0 |
+| Headless UI test | — | 15/15 |
+
+What the golden set found and what was fixed:
+- "Total Return Index" in benchmark names was read as a returns question (it hid
+  benchmark answers offline and could have refused a benchmark question).
+- "Direct Growth … 3 years" was read as a growth claim (hid the ELSS lock-in card).
+- Short definitions ("What is NAV?") asked which fund; now answered.
+- Advice recall: "better than", "the right choice for me", "which … better" added;
+  returns comparisons still go to the performance refusal.
+- "How much would 10000 invested … be worth now?" added to performance.
+- Calibration: unanswerable fund questions score 0.58–0.82, so no score floor can
+  separate them; the generator's found flag and the validator decide. `MIN_SCORE`
+  0.35 → 0.20 keeps short term questions.
+- Measured Groq usage ≈ 1.8–5K tokens per answered question, so a full golden-set run
+  (120 fact answers) spans two days of the free quota; the runner is resumable.
 
 ## Round 8: holdings analysis and honest error replies, 2026-10-01
 

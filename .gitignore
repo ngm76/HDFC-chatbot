@@ -10,3 +10,5 @@ data/debug/
 .cache/
 # Local backup of an earlier problem statement (not part of the project)
 docs/problemstatement copy.txt
+# Golden-set run results (the report in docs/ is the deliverable)
+data/eval/
