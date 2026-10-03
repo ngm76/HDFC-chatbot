@@ -28,18 +28,13 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 
-from src.schemes import SCHEMES, SHARED_SCHEME
+from src.schemes import DOC_NAMES, SCHEMES, SHARED_SCHEME
 
 CARD_DOC_TYPES = ("scheme_page", "kim", "factsheet", "ter")
 
 # How each scheme is named inside the shared documents (factsheet headings, TER rows).
-DOC_NAMES: dict[str, str] = {
-    "HDFC Large Cap Fund Direct Growth": "HDFC Large Cap Fund",
-    "HDFC Flexi Cap Fund Direct Growth": "HDFC Flexi Cap Fund",
-    "HDFC ELSS Tax Saver Fund Direct Growth": "HDFC ELSS - Tax Saver Fund",
-    "HDFC Small Cap Fund Direct Growth": "HDFC Small Cap Fund",
-    "HDFC Balanced Advantage Fund Direct Growth": "HDFC Balanced Advantage Fund",
-}
+# How each scheme is named inside the factsheet and TER workbook: DOC_NAMES, from the
+# scheme registry (src/schemes.py).
 DIRECT_PLAN = "Direct Plan - Growth"
 _MONTHS = ("January|February|March|April|May|June|July|August|September|October|"
            "November|December")

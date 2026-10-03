@@ -62,7 +62,7 @@ flowchart LR
 | Component | Responsibility | Module |
 |---|---|---|
 | Source registry | 24 ingest rows + schemes listing (reference) + 2 Groww help rows: url, publisher, label, doc type, scheme, question types, freshness limit, role, ingest date | `data/sources.csv`, `data/schemes.md` |
-| Scheme names | Canonical names, short forms, former names, fuzzy matching, ambiguity (chips) | `src/schemes.py` |
+| Scheme registry | **Single point of contact** (`SCHEME_REGISTRY`): names, categories, patterns, former names, fuzzy spellings, factsheet / TER / KIM names; all scheme lists and replies derive from it; `ingest.py --strict` checks it against `sources.csv` | `src/schemes.py` |
 | Loader | Fetch HTML / PDF / TER `.xlsx`; allowlist; HDFC scheme-page cleanup; last-good cache | `src/ingest/load.py` |
 | Card builders | One fact card per fact for scheme pages, KIMs, the factsheet and the TER file | `src/ingest/official.py` |
 | Chunker | Dispatch by document type; heading-aware splitter for prose; glossary de-dup; overview cards | `src/ingest/chunk.py` |
@@ -253,7 +253,7 @@ advice, the patterns lean to advice. Mixed messages follow the highest precedenc
 | 3 | Performance | returns, CAGR, XIRR, beat the benchmark, rankings, NAV growth, "be worth now" | Refusal + factsheet link; no figures |
 | — | About | "Which funds can you access?", "What can you do?", greetings | Fixed list + schemes listing (before out-of-scope) |
 | 4 | Out-of-scope | other AMC (incl. without "fund"), other HDFC scheme, Regular / IDCW, live data | Coverage message + one link per reason |
-| 4b | Non-MF | loans, cards, stocks, weather; no mutual-fund words at all | One-line redirect to Groww help |
+| 4b | Non-MF | loans, cards, stocks, weather; no mutual-fund words at all. Decided from the message itself, so it applies mid-conversation too (a short message that refers back, "who runs it?", stays a follow-up) | "I can only answer questions about these mutual funds: <registered list>." + Groww help link |
 | — | Ambiguous / no fund | "HDFC cap fund", several fuzzy matches; a fund fact with no fund named | "Which fund do you mean?" + chips |
 | 5 | Fact | the 7 types + A1 extras for an in-scope scheme | RAG answer |
 

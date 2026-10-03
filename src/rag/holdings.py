@@ -31,6 +31,13 @@ _NOT_A_NAME = re.compile(
     re.I,
 )
 _COUNT_RE = re.compile(r"(\d[\d,]*) holdings in total")
+# The question must be about holdings: "what is the weather in Pune" also matches
+# the "is X in" phrasing, but is not a holdings question.
+_HOLDINGS_QUESTION_RE = re.compile(
+    r"\b(hold|holds|held|holding|holdings|own|owns|stake|portfolio|invest(s|ed)?\s+in|"
+    r"exposure|part\s+of\s+(the\s+)?(fund|portfolio|holdings)|among\s+(the\s+)?holdings)\b",
+    re.I,
+)
 
 
 def asked_company(query: str) -> str | None:
@@ -47,6 +54,8 @@ def asked_company(query: str) -> str | None:
 
 def absence_answer(query: str, scheme: str) -> AnswerPayload | None:
     """A direct "not among the holdings" answer, or None to use the normal path."""
+    if not _HOLDINGS_QUESTION_RE.search(query):
+        return None
     name = asked_company(query)
     if not name:
         return None

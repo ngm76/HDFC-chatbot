@@ -27,7 +27,15 @@ from src.guards.common import (
     scheme_page_source,
     schemes_listing_source,
 )
-from src.schemes import SCHEMES, ambiguous_schemes, detect_schemes, fuzzy_schemes, short_name
+from src.rag.context import _FOLLOW_UP_RE
+from src.schemes import (
+    SCHEMES,
+    ambiguous_schemes,
+    detect_schemes,
+    fuzzy_schemes,
+    scheme_list_text,
+    short_name,
+)
 
 _OTHER_AMC_RE = re.compile(
     r"\b(sbi|icici(\s+prudential)?|axis|nippon(\s+india)?|kotak|aditya\s+birla|absl|"
@@ -53,7 +61,7 @@ _NON_MF_RE = re.compile(
 _MF_VOCAB_RE = re.compile(
     r"\b(mutual|funds?|schemes?|sip|swp|stp|nav|aum|expense|ter|exit|entry|load|lock[\s-]?in|"
     r"riskometer|risk|benchmark|index|statements?|cas|elss|kyc|folio|redeem\w*|redemption|"
-    r"units?|amc|hdfc|invest\w*|portfolio|holdings?|holds?|manager|managers|direct|regular|"
+    r"units?|amc|hdfc|invest\w*|portfolio|holdings?|holds?|manag\w*|direct|regular|"
     r"idcw|dividend|growth|lump\s*sum|tax\w*|capital\s+gains?|stamp\s+duty|registrar|rta|"
     r"cams|kfin\w*|sebi|amfi|equity|debt|hybrid|allotment|nominee|nomination|switch)\b",
     re.I,
@@ -118,18 +126,38 @@ TEXTS = {
             "the scheme's details for every plan and option.",
     "live_data": "I don't have live data such as today's NAV. I can share the latest NAV "
                  "stated in the HDFC Mutual Fund monthly factsheet if you ask for it.",
-    "non_mf": "I can only help with facts about HDFC Mutual Fund schemes; for anything else, "
-              "please visit Groww Help.",
+    # One line, listing the covered schemes from the registry (src/schemes.py).
+    "non_mf": f"I can only answer questions about these mutual funds: {scheme_list_text()}.",
 }
 
 
-def is_non_mf(text: str) -> bool:
-    """Not a mutual-fund question (FR-15)."""
-    if detect_schemes(text) or fuzzy_schemes(text):
+# Holdings-type wording: "Does it hold HDFC Bank?" is about a fund even though
+# "HDFC Bank" is also an off-topic product name.
+_HOLDING_WORDS_RE = re.compile(
+    r"\b(hold|holds|held|holding|holdings|own|owns|stake|portfolio|custodian|"
+    r"invest(s|ed)?\s+in|exposure)\b",
+    re.I,
+)
+
+
+_REFERS_BACK_RE = re.compile(r"\b(it|its|this|that|they|them|their|the\s+fund|same)\b", re.I)
+
+
+def is_non_mf(text: str, in_conversation: bool = False) -> bool:
+    """Not a mutual-fund question (FR-15). Decided from the message itself: a fund
+    from earlier in the chat never turns "what is the weather in Pune?" into a fund
+    question. `in_conversation`: a fund is in play, so a short follow-up with no
+    fund words ("and the other one?") is not treated as off-topic."""
+    if detect_schemes(text) or fuzzy_schemes(text) or _HOLDING_WORDS_RE.search(text):
         return False
     if _NON_MF_RE.search(text):
         return True
-    return not _MF_VOCAB_RE.search(text)
+    if _MF_VOCAB_RE.search(text):
+        return False
+    # In a conversation, a short message that refers back ("and the other one?",
+    # "who runs it?") is a follow-up about the fund in play.
+    refers_back = bool(_FOLLOW_UP_RE.match(text) or _REFERS_BACK_RE.search(text))
+    return not (in_conversation and refers_back and len(text.split()) <= 8)
 
 
 def out_of_scope_reason(text: str, context_scheme: str | None = None) -> str | None:
@@ -145,7 +173,7 @@ def out_of_scope_reason(text: str, context_scheme: str | None = None) -> str | N
     names_our_scheme = bool(detect_schemes(text)) or context_scheme is not None
     if _OTHER_AMC_RE.search(text) and not names_our_scheme and not _NON_MF_RE.search(text):
         return "other_amc"
-    if not names_our_scheme and is_non_mf(text):
+    if is_non_mf(text, in_conversation=context_scheme is not None):
         return "non_mf"
     if _PLAN_RE.search(text) and not _PLAN_EXPLAINER_RE.search(text):
         return "plan"

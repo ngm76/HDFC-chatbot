@@ -132,6 +132,24 @@ CASES: list[tuple[str, str, list[str], list[str]]] = [
 ]
 
 
+# In a conversation about a fund (context_scheme set): follow-ups stay on that fund,
+# but an unrelated message is still redirected (regression: "what is current weather
+# in Pune" was once answered as a holdings question about HDFC Small Cap Fund).
+CONTEXT = "HDFC Small Cap Fund Direct Growth"
+CONTEXT_CASES: list[tuple[str, str]] = [
+    ("what is current weather in Pune", "non_mf"),
+    ("Tell me a joke", "non_mf"),
+    ("cricket score?", "non_mf"),
+    ("How do I apply for an HDFC Bank credit card?", "non_mf"),
+    ("And its expense ratio?", "allow"),
+    ("Who manages it?", "allow"),
+    ("who runs it?", "allow"),
+    ("Does it hold HDFC Bank?", "allow"),
+    ("What about Large Cap?", "allow"),
+    ("Should I buy more of it?", "advice"),
+]
+
+
 def outcome(decision) -> str:
     if decision.allowed:
         return "allow"
@@ -156,6 +174,21 @@ def pii_never_reaches_retrieval() -> bool:
             and bool(answer.payload["source_url"]))
 
 
+def weather_not_a_holdings_answer() -> bool:
+    """Full pipeline: the reported bug, end to end (offline generator, no tokens)."""
+    import os
+
+    import src.rag.pipeline as rag
+    from src.rag.holdings import absence_answer
+
+    os.environ.setdefault("GENERATOR", "extractive")
+    history = [("What is the exit load of HDFC Small Cap Fund?", "HDFC Small Cap Fund ...")]
+    answer = rag.ask("what is current weather in Pune", history)
+    return (answer.payload["refusal_reason"] == "non_mf"
+            and "holdings" not in answer.payload["text"]
+            and absence_answer("what is current weather in Pune", CONTEXT) is None)
+
+
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     failures = 0
@@ -173,9 +206,20 @@ def main() -> None:
             print(f"      expected {expected} pii={expected_pii}; got pii={d.pii_types}"
                   f"{' LEAKED RAW PII' if leaked else ''}{' NO LINK' if no_link else ''}")
 
+    print("\nIn a conversation about HDFC Small Cap Fund:")
+    for message, expected in CONTEXT_CASES:
+        got = outcome(run_guards(message, context_scheme=CONTEXT))
+        ok = got == expected
+        failures += not ok
+        print(f"{'PASS' if ok else 'FAIL'}  {got:<12} {message}" + ("" if ok else f"  (expected {expected})"))
+
     ok = pii_never_reaches_retrieval()
     failures += not ok
     print(f"\n{'PASS' if ok else 'FAIL'}  PII message never reaches retrieval or the model")
+
+    ok = weather_not_a_holdings_answer()
+    failures += not ok
+    print(f"{'PASS' if ok else 'FAIL'}  off-topic 'is X in Y' after a fund question is not a holdings answer")
 
     print("\nSample payloads:")
     for message in ["My PAN is ABCDE1234F, show my ELSS lock-in date",
@@ -190,7 +234,7 @@ def main() -> None:
         print(f"\n  Q: {run_guards(message).query}\n  A: {p['text']}\n  link: {p['source_url']}"
               + (f"\n  chips: {p['chips']}" if p.get("chips") else ""))
 
-    total = len(CASES) + 1
+    total = len(CASES) + len(CONTEXT_CASES) + 2
     print(f"\n{total - failures}/{total} passed")
     raise SystemExit(1 if failures else 0)
 

@@ -626,6 +626,21 @@ is one retrievable card that names its scheme, plan and source date.
 
 ---
 
+## Post-release changes (2026-10-03)
+
+- **Chat-only UI** (Addendum A8): scheme list, fund cards and fact sheet removed; most
+  asked questions as chips; the five schemes covered listed under the welcome line.
+- **Single scheme registry** (Addendum A9): `SCHEME_REGISTRY` in `src/schemes.py` is the
+  only place the covered schemes are defined; detection, replies, UI lists, card
+  builders and the KIM check derive from it; `ingest.py --strict` fails if it and
+  `data/sources.csv` disagree.
+- **Off-topic bug fixed:** "what is current weather in Pune" after a Small Cap question
+  was answered as a holdings question. The non-MF check now uses the message itself
+  (not the fund carried over from the chat), and the holdings shortcut only fires on
+  holdings wording. Non-MF reply: "I can only answer questions about these mutual
+  funds: …". Guard suite: 110/110 (adds in-conversation cases and the end-to-end
+  regression).
+
 ## Phase 22: Release
 
 **Goal:** ship the aligned version.

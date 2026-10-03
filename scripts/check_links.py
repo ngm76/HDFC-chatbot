@@ -22,6 +22,10 @@ from urllib.parse import unquote
 
 import httpx
 
+PROJECT_ROOT_FOR_IMPORT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT_FOR_IMPORT))
+from src.schemes import KIM_NAME_PATTERNS  # noqa: E402  (stdlib-only module)
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SOURCES_CSV = PROJECT_ROOT / "data" / "sources.csv"
 USER_AGENT = "Mozilla/5.0 facts-only-research-prototype"  # same as the loader
@@ -37,14 +41,8 @@ HUBS = {
     "kim": ("https://www.hdfcfund.com/mutual-funds/fund-documents/kim",
             re.compile(FILES + r"KIM/[^\"'\s<>]+?\.pdf")),
 }
-# How each scheme appears in KIM file names.
-KIM_NAMES = {
-    "HDFC Large Cap Fund Direct Growth": r"KIM - HDFC Large Cap Fund dated",
-    "HDFC Flexi Cap Fund Direct Growth": r"KIM - HDFC Flexi Cap Fund dated",
-    "HDFC ELSS Tax Saver Fund Direct Growth": r"KIM - HDFC ELSS Tax Saver dated",
-    "HDFC Small Cap Fund Direct Growth": r"KIM - HDFC Small Cap Fund dated",
-    "HDFC Balanced Advantage Fund Direct Growth": r"KIM - HDFC Balanced Advantage Fund dated",
-}
+# How each scheme appears in KIM file names: from the scheme registry (src/schemes.py).
+KIM_NAMES = KIM_NAME_PATTERNS
 _DATED_RE = re.compile(r"dated\s+(\w+)\s+(\d{1,2}),\s*(\d{4})", re.I)
 _MONTHS = {m: i for i, m in enumerate(
     "january february march april may june july august september october november december".split(), 1)}

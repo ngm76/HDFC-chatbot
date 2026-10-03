@@ -32,12 +32,13 @@ from src.guards.common import corpus_last_fetched  # noqa: E402
 from src.ingest.official import human_date  # noqa: E402
 from src.rag.context import HISTORY_TURNS  # noqa: E402
 from src.rag.pipeline import Answer, ask  # noqa: E402
-from src.schemes import SCHEME_CATEGORIES, short_name  # noqa: E402
+from src.schemes import SCHEME_CATEGORIES, SCHEMES, detect_schemes, short_name  # noqa: E402
 
 APP_NAME = "Mutual Funds FAQ"
 # PRD §9 copy, verbatim.
+# The scheme count comes from the registry (src/schemes.py).
 WELCOME = (
-    "Hi! Ask me facts about 5 HDFC Mutual Fund schemes – expense ratio, exit load, "
+    f"Hi! Ask me facts about {len(SCHEMES)} HDFC Mutual Fund schemes – expense ratio, exit load, "
     "SIP minimums, lock-in, riskometer, benchmark or statements."
 )
 FACTS_ONLY_NOTE = "Facts-only. No investment advice."
@@ -54,6 +55,8 @@ MOST_ASKED = [
     "What is the benchmark of HDFC Small Cap Fund?",
     "How do I get my CAS?",
 ]
+# Keep the list in step with the registry: drop questions about schemes no longer covered.
+MOST_ASKED = [q for q in MOST_ASKED if detect_schemes(q) or "HDFC" not in q]
 FEEDBACK_REASONS = ["Wrong", "Outdated", "Not helpful"]
 STALE_AFTER_DAYS = 3  # the daily refresh normally keeps data under a day old
 DISCLAIMER = (

@@ -52,7 +52,7 @@ definitions and scheme details.
 | Advice ("should I buy", "which is better for me") | Polite refusal + an offer of facts | AMFI investor education |
 | Returns / performance / rankings | Refusal, no figures | HDFC MF monthly factsheet |
 | Other fund house, other HDFC scheme, Regular / IDCW, live NAV | What is covered | AMFI / HDFC MF schemes listing / scheme page / factsheet |
-| Not about mutual funds | One-line redirect | Groww help |
+| Not about mutual funds (also mid-conversation) | "I can only answer questions about these mutual funds: …" (the registered list) | Groww help |
 | Ambiguous name ("HDFC cap fund"), or no fund named | "Which fund do you mean?" with chips | HDFC MF schemes listing |
 | Fact question | ≤ 3 sentences from the official sources | The cited page |
 
@@ -133,21 +133,37 @@ as tappable chips (prominent on an empty chat, then in a collapsible section).
   (7 days) is past its freshness limit, and answers citing it add "Please check the
   linked page for the latest value."
 
-## How to add a scheme alias
+## How to change the list of schemes (single point of contact)
 
-Aliases and former names live in `src/schemes.py`:
-1. Add the spelling to the scheme's pattern in `SCHEME_PATTERNS` (exact match), e.g.
-   `r"\bhdfc\s+top[\s-]?100\b"`.
-2. For a former name, also add it to `FORMER_NAMES` so answers say "X was formerly
-   called Y".
-3. For misspellings, add the words to `_ALIASES` (fuzzy matched, ratio ≥ 0.85).
-4. Add a case to `scripts/debug_guards.py` and run it.
+The covered schemes live in **one place**: `SCHEME_REGISTRY` in `src/schemes.py`. Each
+entry has the scheme's name, category, the patterns that name it, former names,
+spellings to accept with typos, and how it is named in the factsheet / TER file and
+in KIM file names. Everything else is derived from it: scheme detection and chips,
+the about / out-of-scope / non-mutual-fund replies ("I can only answer questions
+about these mutual funds: …"), the "Schemes covered" row and count in the welcome
+line, the factsheet and TER card builders, and the KIM new-edition check.
+
+**Add or remove a scheme**
+1. Edit `SCHEME_REGISTRY` in `src/schemes.py`.
+2. Add (or remove) the scheme's `scheme_page` and `kim` rows in `data/sources.csv`
+   (`scheme` = the scheme name + " Direct Growth", with a `label`). The registry
+   cannot download pages, so this second step is needed.
+3. Run `python scripts/ingest.py --refresh --strict`. It **fails if the registry and
+   `sources.csv` disagree** (a registered scheme without its rows, or a scheme in
+   `sources.csv` that is not registered), and if the new scheme lacks any required card.
+4. Run the tests below; update `data/golden_set.csv` and the most asked questions in
+   `src/app/main.py` if they mention the scheme (questions about schemes that are no
+   longer registered are dropped from the UI automatically).
+
+**Add an alias or former name:** add the pattern to the scheme's `patterns`, a former
+name to `former_names` (answers then say "X was formerly called Y"), or a common
+misspelling to `fuzzy`; then add a case to `scripts/debug_guards.py` and run it.
 
 ## Tests and evaluation
 
 | Command | What it checks | LLM tokens |
 |---|---|---|
-| `python scripts/debug_guards.py` | 99 cases: every PRD §6 example and §8 edge case, PII never reaching retrieval or the model, one link on every non-answer | none |
+| `python scripts/debug_guards.py` | 110 cases (incl. in-conversation off-topic): every PRD §6 example and §8 edge case, PII never reaching retrieval or the model, one link on every non-answer | none |
 | `python scripts/eval_gold.py --matrix` | Every fund × field (50): the right card ranks first | none |
 | `python scripts/eval_gold.py --retrieval-only` | 20-question gold set, retrieval only | none |
 | `python scripts/eval_gold.py` | Same 20 questions, generated answers | ~50K |

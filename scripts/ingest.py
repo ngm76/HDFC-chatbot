@@ -136,6 +136,29 @@ def stale_editions(sources_csv: Path, chunks, today: date | None = None) -> list
     return warnings
 
 
+# Document types every registered scheme needs in data/sources.csv.
+REQUIRED_SCHEME_DOCS = ("scheme_page", "kim")
+
+
+def registry_problems(sources_csv: Path) -> list[str]:
+    """The scheme registry (src/schemes.py) and data/sources.csv must agree: every
+    registered scheme has its scheme page and KIM rows, and every scheme in
+    sources.csv is registered."""
+    with sources_csv.open(encoding="utf-8", newline="") as handle:
+        rows = [r for r in csv.DictReader(handle) if (r.get("role") or "") == "ingest"]
+    problems = []
+    for scheme in SCHEMES:
+        have = {r["doc_type"] for r in rows if r["scheme"] == scheme}
+        missing = [d for d in REQUIRED_SCHEME_DOCS if d not in have]
+        if missing:
+            problems.append(f"{scheme} is in the scheme registry but data/sources.csv has no "
+                            f"{', '.join(missing)} row")
+    for name in sorted({r["scheme"] for r in rows} - set(SCHEMES) - {SHARED_SCHEME}):
+        problems.append(f"{name} is in data/sources.csv but not in the scheme registry "
+                        "(src/schemes.py SCHEME_REGISTRY)")
+    return problems
+
+
 def strict_problems(result) -> list[str]:
     problems = [f"failed to load {e.url}: {e.message}" for e in result.errors]
     for doc in result.documents:
@@ -188,7 +211,7 @@ def main() -> None:
     for warning in stale_editions(args.sources, chunks):
         print(f"  STALE EDITION: {warning}")
     if args.strict or args.check_only:
-        problems = strict_problems(result) + card_problems(chunks)
+        problems = registry_problems(args.sources) + strict_problems(result) + card_problems(chunks)
         for problem in problems:
             print(f"  STRICT: {problem}")
         if problems:

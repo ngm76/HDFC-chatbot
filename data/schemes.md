@@ -15,6 +15,10 @@ settings (`User-Agent`, 30 s timeout) and returned HTTP 200 with usable text.
 
 ## Five schemes
 
+The list of covered schemes is maintained in one place: `SCHEME_REGISTRY` in
+`src/schemes.py` (see README "How to change the list of schemes"). This table is
+documentation; the build checks the registry against `data/sources.csv`.
+
 | Category | Scheme (AMC name) | Internal `scheme` value | Former names and aliases (FR-2) |
 | --- | --- | --- | --- |
 | Large cap | HDFC Large Cap Fund | `HDFC Large Cap Fund Direct Growth` | HDFC Top 100 Fund, HDFC Top 100, HDFC Large Cap |
