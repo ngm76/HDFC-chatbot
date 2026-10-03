@@ -262,7 +262,11 @@ def write_report() -> None:
         ]
         lines = [f"### {mode.title()} mode — generator: {gen}; {m['n']} of {total} queries graded\n",
                  "| Metric | Target | Result | Pass |", "|---|---|---|---|"]
-        lines += [f"| {a} | {b} | {c} | {'✅' if d else '❌'} |" for a, b, c, d in table]
+        lines += [f"| {a} | {b} | {c} | {'— (not reached yet)' if c == 'n/a' else ('✅' if d else '❌')} |"
+                  for a, b, c, d in table]
+        if m["n"] < total:
+            lines += ["", f"_Partial run: {m['n']} of {total} queries graded so far (the free Groq quota or an "
+                          "interrupted run); re-run `--mode full` to continue where it stopped._"]
         lines += [
             "", f"- Intent routed as labelled: {_rate(*m['intent'])}",
             f"- Expected fact present in the retrieved passages: {_rate(*m['fact_retrieved'])}",

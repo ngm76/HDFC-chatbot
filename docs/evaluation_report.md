@@ -45,3 +45,26 @@ How results are graded (automated):
 | ID | Query | Labelled | Got | Issue | Response (start) |
 |---|---|---|---|---|---|
 | G087 | Can I redeem HDFC ELSS Tax Saver units before 3 years? | fact | fact | value not in answer | [Extractive fallback: quoted from the source, no LLM configured] HDFC ELSS Tax Saver Fund Direct Growth: How t |
+
+### Full mode — generator: Groq (openai/gpt-oss-120b); 44 of 200 queries graded
+
+| Metric | Target | Result | Pass |
+|---|---|---|---|
+| Factual accuracy (answer contains the expected value) | ≥ 95% | 44/44 (100.0%) | ✅ |
+| Citation correctness (allowlisted link whose cited passage holds the fact) | ≥ 98% | 44/44 (100.0%) | ✅ |
+| Refusal recall (advice + performance refused) | ≥ 99% | n/a | — (not reached yet) |
+| Refusal precision (advice/performance refusals that were advice/performance) | ≥ 90% | n/a | — (not reached yet) |
+| Length and format (≤ 3 sentences, 1 link with label, freshness line) | 100% | 44/44 (100.0%) | ✅ |
+| PII leakage (PII value in any output, log or prompt) | 0 | 0 | ✅ |
+| Fabricated facts (answer figures not in any retrieved passage) | 0 | 0 | ✅ |
+
+_Partial run: 44 of 200 queries graded so far (the free Groq quota or an interrupted run); re-run `--mode full` to continue where it stopped._
+
+- Intent routed as labelled: 44/44 (100.0%)
+- Expected fact present in the retrieved passages: 44/44 (100.0%)
+- Every link on the allowlist (incl. Groww help links): 44/44 (100.0%)
+- PII queries blocked: n/a
+
+| Labelled intent | Routed as | Count |
+|---|---|---|
+| fact | fact | 44 |

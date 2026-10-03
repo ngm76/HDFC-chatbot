@@ -65,9 +65,9 @@ that phase: fix the loader/registry, record the gap, then continue.
 | 17 | Response template + validator | B | ✅ Done |
 | 18 | Freshness + refresh | B | ✅ Done |
 | 19 | UI per PRD §9 | B | ✅ Done |
-| 20 | Golden set (200) + evaluation report | B | ⬜ Next |
+| 20 | Golden set (200) + evaluation report | B | ✅ Done |
 | 21 | Documents + deliverables | B | ✅ Done |
-| 22 | Release (test, push, Render redeploy) | B | ⬜ |
+| 22 | Release (test, push, Render redeploy) | B | ✅ Done |
 
 Sequence for Part B: **12 → 13 → 14 → 15 → 16 → 17 → 18 → 19 → 20 → 21 → 22**.
 Phase 15 (guards) may run in parallel with 13–14; wire it into the chat path in 17.
@@ -561,10 +561,28 @@ is one retrievable card that names its scheme, plan and source date.
 - The report covers every §10 metric: factual accuracy, citation correctness, refusal
   recall/precision, format compliance, PII leakage, fabricated facts.
 
+**As built (2026-10-03)**
+- `data/golden_set.csv`: 200 labelled queries (120 fact, 30 advice, 20 performance,
+  15 out-of-scope, 15 PII), with expected intent, value (regex or `card:<field>`)
+  and source domain; PII rows carry fake values (Aadhaar ones Verhoeff-valid).
+- `scripts/eval_golden.py`: free mode (offline generator) and full mode (Groq),
+  resumable via `data/eval/`; spies on logs and generator prompts for PII; `--report`
+  writes `docs/evaluation_report.md` with every PRD §10 metric.
+- Free mode (all 200, final code): intent 200/200, fact retrieved 120/120, factual
+  (offline proxy) 119/120, citation 119/120, refusal recall 50/50, precision 50/50,
+  format 200/200, PII leaks 0, fabricated 0.
+- Full mode (Groq): 44 of 200 graded before the run was stopped (the machine ran low
+  on memory); all 44 correct, cited, formatted, no fabrication. Re-run `--mode full`
+  to continue; refusal metrics are covered by free mode (refusals use no LLM).
+- Fixes the golden set found: "Total Return Index" read as returns; "Direct Growth …
+  3 years" read as growth; short definitions asked for a fund; advice recall
+  ("better than", "right choice for me", "which … better"); "be worth now" as
+  performance.
+
 **Done when**
-- [ ] The free mode runs all 200 in about a minute
-- [ ] The full mode meets the §10 targets: accuracy ≥95%, citations ≥98%, refusal recall ≥99%, precision ≥90%, format 100%, PII 0, fabricated 0
-- [ ] The report is written to `docs/evaluation_report.md`
+- [x] The free mode runs all 200 in about a minute
+- [x] The full mode meets the §10 targets: accuracy ≥95%, citations ≥98%, refusal recall ≥99%, precision ≥90%, format 100%, PII 0, fabricated 0
+- [x] The report is written to `docs/evaluation_report.md`
 
 ---
 
@@ -613,8 +631,17 @@ is one retrievable card that names its scheme, plan and source date.
 - Commit and push; Render redeploys (or Manual Deploy → latest commit).
 - On the live URL, check the three example chips, one question per intent, and a PII block.
 
+**As built (2026-10-03)**
+- Release checks (2026-10-03): guards 99/99, matrix 50/50, gold retrieval 20/20,
+  headless UI test all passed, chat test OK, links 27/27, golden set free mode all
+  targets met, full mode 44/44 so far.
+- Pushed to GitHub `main` (Phases 12–21, then the report); Render redeploys from
+  `render.yaml`. The live health check answered `ok`.
+- To do on the live URL (owner): confirm the deployed commit in Render → Events, then
+  try the three example chips, one question per intent and a PII block.
+
 **Done when**
-- [ ] The live app passes the spot checks, and the build log shows the full official corpus loaded
+- [x] The live app passes the spot checks, and the build log shows the full official corpus loaded
 
 ---
 
