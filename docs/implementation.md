@@ -534,12 +534,15 @@ is one retrievable card that names its scheme, plan and source date.
   chat context (only an explicit selection or chip settles it).
 - Feedback: `st.feedback` thumbs on each answer; 👎 offers an optional reason
   (Wrong / Outdated / Not helpful); session state only (Addendum A3).
-- A1 extras kept and fed by the official cards: fund cards (NAV, Direct TER), fact
-  sheet (tiles shortened from the official values, lock-in row, asset mix "from the
-  factsheet's portfolio subtotals", top holdings), source = the scheme page label.
-  Groww wording removed; footer: official sources, not affiliated.
+- Groww wording removed; footer: official sources, not affiliated.
+- **Update 2026-10-03 (owner decision, PRD Addendum A8):** single chat screen. The
+  left scheme list, fund cards ("View facts") and fact sheet were removed, along with
+  `src/rag/facts.py`; the most asked questions (eight, the PRD §9 examples first) are
+  shown as chips on an empty chat and in a collapsible section afterwards, with a
+  "Clear chat" button. The facts behind the removed widgets stay answerable in chat.
 - No transaction CTAs. Buttons carry `help` text; links carry `aria-label`.
-- `scripts/test_ui.py` (Streamlit AppTest, offline generator): 15/15.
+- `scripts/test_ui.py` (Streamlit AppTest, offline generator): 17/17 (incl. no
+  scheme list / fund cards, most asked questions shown).
 
 **Done when**
 - [x] Headless UI test checks every §9 element

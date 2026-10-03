@@ -76,8 +76,7 @@ flowchart LR
 | Generator | Grounded JSON answer (Groq / Claude / extractive), number check, one regeneration | `src/rag/generate.py` |
 | Validator | FR-4: return figures, banned words, opinions, > 3 sentences, unknown links | `src/rag/validate.py` |
 | Assembler | PRD §7 template: label, freshness, Regular and stale notes; miss / error replies with a link | `src/rag/assemble.py` |
-| Facts reader | Structured facts for the UI from the same cards | `src/rag/facts.py` |
-| UI | PRD §9 chat + A1 scheme panel, fund cards, fact sheet, feedback | `src/app/main.py` |
+| UI | Single chat screen per PRD §9: most asked questions, answers, chips, feedback (A8) | `src/app/main.py` |
 | Evaluation | Golden set (200), gold set (20), matrix (50), guard suite (99), UI test, chat test | `scripts/eval_golden.py`, `eval_gold.py`, `debug_guards.py`, `test_ui.py`, `debug_chat.py` |
 | Freshness | Link health + newer-edition scan of the HDFC MF hub pages | `scripts/check_links.py` |
 | Deployment | Render free web service; daily redeploy and link check | `render.yaml`, `.github/workflows/refresh-data.yml` |
@@ -323,8 +322,8 @@ messages, chat history or feedback (session only, A3).
 | PII block state | Inline warning above the input with the help link; message not shown or kept; input cleared |
 | Clarify | Scheme chips as buttons that re-ask for the chosen fund |
 | Feedback | 👍 / 👎 per answer; 👎 offers an optional reason (Wrong / Outdated / Not helpful); session only |
-| A1 extras | Scheme panel, fund cards (NAV, Direct TER), fact sheet (tiles, lock-in, asset mix from the factsheet subtotals, top holdings), source = scheme page label |
-| Other | No transaction CTAs; buttons carry help text; staleness banner |
+| Most asked questions (A8) | Eight tappable questions (the PRD §9 examples first); shown on an empty chat, then in a collapsible section. A fixed list: the app does not record what users ask |
+| Other | Single chat screen (no scheme list, fund cards or fact sheet, A8); "Clear chat"; no transaction CTAs; buttons carry help text; staleness banner |
 
 ---
 
@@ -372,7 +371,7 @@ src/
   guards/  pipeline.py · pii.py · advice.py · performance.py · scope.py
            about.py · clarify.py · common.py
   rag/     pipeline.py · context.py · retrieve.py · holdings.py
-           generate.py · validate.py · assemble.py · facts.py
+           generate.py · validate.py · assemble.py
   app/     main.py
 scripts/  ingest.py · check_links.py · eval_golden.py · eval_gold.py · test_ui.py
           debug_guards.py · debug_chat.py · debug_ask.py · debug_retrieve.py
@@ -430,7 +429,7 @@ render.yaml · .github/workflows/refresh-data.yml · requirements.txt · .env.ex
 | §10 golden set and metrics | §14, `docs/evaluation_report.md` |
 | §11 risks | §6 scheme filter, §10, §17 |
 | §12 deliverables | `data/sources.csv`, README, `docs/sample_qa.md`, UI disclaimer |
-| Addendum A1–A7 | §5, §9, §12, §13 |
+| Addendum A1–A8 | §5, §9, §12, §13 |
 
 ---
 

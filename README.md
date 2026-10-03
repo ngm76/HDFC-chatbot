@@ -116,8 +116,8 @@ streamlit run src/app/main.py
 The UI follows PRD §9: welcome line, three example questions, a pinned "Facts-only.
 No investment advice." note, the input hint, answers with a source label and
 freshness line, the PII block state, 👍 / 👎 feedback (session only), and chips for
-ambiguous fund names. It keeps the scheme panel, fund cards and fact sheet, all read
-from the same fact cards the chatbot answers from.
+ambiguous fund names. It is a single chat screen: the most asked questions are shown
+as tappable chips (prominent on an empty chat, then in a collapsible section).
 
 ## Keeping the data current
 
@@ -227,7 +227,7 @@ The header also shows a pinned **"Facts-only. No investment advice."** note.
 
 - **ELSS NAV:** the factsheet's PDF text lists two Direct Plan NAVs without the
   Growth / IDCW labels, so the answer states both and says which is which can't be
-  read; the fund card shows "—".
+  read.
 - **Flexi Cap's former name** (HDFC Equity Fund) is recognised as an alias, but no
   ingested official document states it, so "what was it called earlier?" is answered
   only for Large Cap (from its KIM).

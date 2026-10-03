@@ -1,7 +1,8 @@
 """Headless UI test (Phases 19 and 22) with Streamlit's AppTest; no browser needed.
 
-Checks the PRD §9 states: welcome line, pinned facts-only note, the three example
-chips and input hint; an answer with its source label and freshness line; the PII
+Checks the PRD §9 states on the single chat screen: welcome line, pinned facts-only
+note, most asked questions (incl. the three example chips), input hint, and no scheme
+list or fund cards; an answer with its source label and freshness line; the PII
 block (warning shown, nothing added to the chat); clarify chips that re-ask for the
 chosen fund; feedback controls. Uses the offline extractive generator, so it costs
 no LLM tokens. Run from the project root:  python scripts/test_ui.py
@@ -49,6 +50,10 @@ def main() -> None:
     check("input hint", at.chat_input[0].placeholder ==
           "Ask a factual question. Don't share PAN, Aadhaar or account details.")
     check("no Groww source wording", "Source: Groww" not in page)
+    check("chat only: no scheme list, no 'View facts' cards", not at.radio and not at.sidebar.children
+          and "View facts" not in labels)
+    check("most asked questions shown", "Most asked questions" in page
+          and sum(b.key.startswith("asked-") for b in at.button if b.key) == 8)
 
     # Example chip -> answer with a source label and a freshness line
     next(b for b in at.button if b.label.startswith("How long is the HDFC ELSS")).click().run()
