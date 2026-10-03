@@ -42,6 +42,9 @@ def main() -> None:
     page = html_text(at)
     check("welcome line (PRD §9)", "Hi! Ask me facts about 5 HDFC Mutual Fund schemes" in page)
     check("pinned facts-only note", "Facts-only. No investment advice." in page)
+    check("the five schemes covered are listed", "Schemes covered" in page and all(n in page for n in (
+        "HDFC Large Cap Fund", "HDFC Flexi Cap Fund", "HDFC ELSS Tax Saver Fund",
+        "HDFC Small Cap Fund", "HDFC Balanced Advantage Fund")))
     labels = [b.label for b in at.button]
     check("three example chips", all(q in labels for q in (
         "What is the exit load on HDFC Small Cap Fund?",

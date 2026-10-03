@@ -2,8 +2,8 @@
 
 Run from the project root:  streamlit run src/app/main.py
 
-A single chat screen, per PRD §9: welcome line, a pinned "Facts-only. No investment
-advice." note, the most asked questions as tappable chips, the input hint, answer
+A single chat screen, per PRD §9: welcome line, the five schemes covered, a pinned
+"Facts-only. No investment advice." note, the most asked questions as tappable chips, the input hint, answer
 bubbles (body, source label opening in a new tab, freshness line), the PII block
 state (inline warning, input cleared, nothing sent or stored), chips for ambiguous
 fund names, and 👍 / 👎 feedback with an optional reason. No transaction calls to
@@ -32,6 +32,7 @@ from src.guards.common import corpus_last_fetched  # noqa: E402
 from src.ingest.official import human_date  # noqa: E402
 from src.rag.context import HISTORY_TURNS  # noqa: E402
 from src.rag.pipeline import Answer, ask  # noqa: E402
+from src.schemes import SCHEME_CATEGORIES, short_name  # noqa: E402
 
 APP_NAME = "Mutual Funds FAQ"
 # PRD §9 copy, verbatim.
@@ -77,7 +78,11 @@ footer, [data-testid="stDecoration"] { display: none; }
               background:#0E9F6E; margin-right:8px; vertical-align:middle; }
 .note-pill { font-size:12px; font-weight:600; color:#0E9F6E; background:#E9F8F1;
              border-radius:999px; padding:5px 12px; }
-.welcome { color:#4B5563; font-size:14px; margin: 0 0 14px; }
+.welcome { color:#4B5563; font-size:14px; margin: 0 0 8px; }
+.covered { margin: 0 0 16px; font-size:12.5px; color:#6B7280; }
+.covered .tag { display:inline-block; font-size:12.5px; color:#111827; background:#F3F4F6;
+                border:1px solid #E5E7EB; border-radius:999px; padding:3px 10px; margin:4px 6px 0 0; }
+.covered .tag span { color:#6B7280; }
 .asked-title { font-size:13px; font-weight:600; color:#374151; margin: 4px 0 8px; }
 
 .src-pill { display:inline-block; font-size:12px; font-weight:600; color:#0E9F6E !important;
@@ -203,7 +208,11 @@ def main() -> None:
     st.markdown(
         f'<div class="topbar"><div class="brand"><span class="dot"></span>{APP_NAME}</div>'
         f'<div class="note-pill" role="note">{FACTS_ONLY_NOTE}</div></div>'
-        f'<div class="welcome">{html.escape(WELCOME)}</div>',
+        f'<div class="welcome">{html.escape(WELCOME)}</div>'
+        f'<div class="covered" role="list" aria-label="Schemes covered">Schemes covered (Direct Plan - Growth):<br>'
+        + "".join(f'<span class="tag" role="listitem">{html.escape(short_name(s))} '
+                  f'<span>· {html.escape(c)}</span></span>' for s, c in SCHEME_CATEGORIES.items())
+        + "</div>",
         unsafe_allow_html=True,
     )
     stale = _staleness_note()

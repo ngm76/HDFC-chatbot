@@ -317,7 +317,7 @@ messages, chat history or feedback (session only, A3).
 | Element | Design |
 |---|---|
 | Header | "Mutual Funds FAQ"; "Facts-only. No investment advice." pinned (sticky header and sidebar) |
-| Welcome line, 3 example chips, input hint | Exact PRD §9 copy |
+| Welcome line, 3 example chips, input hint | Exact PRD §9 copy; under the welcome line, the five schemes covered (name · category) |
 | Answer bubble | Body; `Source: <label> ↗` (new tab, `aria-label`); freshness line in secondary text |
 | PII block state | Inline warning above the input with the help link; message not shown or kept; input cleared |
 | Clarify | Scheme chips as buttons that re-ask for the chosen fund |

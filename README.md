@@ -113,7 +113,7 @@ downloads the embedding model (~90 MB).
 streamlit run src/app/main.py
 ```
 
-The UI follows PRD §9: welcome line, three example questions, a pinned "Facts-only.
+The UI follows PRD §9: welcome line (with the five schemes covered listed under it), three example questions, a pinned "Facts-only.
 No investment advice." note, the input hint, answers with a source label and
 freshness line, the PII block state, 👍 / 👎 feedback (session only), and chips for
 ambiguous fund names. It is a single chat screen: the most asked questions are shown
