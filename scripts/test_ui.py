@@ -84,6 +84,12 @@ def main() -> None:
           and "Small Cap" in (last_a.payload["source_label"] or "") + last_a.payload["text"])
     check("no exceptions after interactions", not at.exception)
 
+    # Clear chat: one click empties the chat and brings the most asked questions back
+    next(b for b in at.button if b.key == "clear-chat").click().run()
+    check("clear chat empties the chat in one run", at.session_state["history"] == []
+          and "Most asked questions" in html_text(at))
+    check("no grey fade while the page re-runs", 'data-stale="true"' in html_text(at))
+
     print(f"\n{'all passed' if not failures else f'{failures} failed'}")
     raise SystemExit(1 if failures else 0)
 

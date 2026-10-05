@@ -29,6 +29,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.guards.common import corpus_last_fetched  # noqa: E402
+from src.guards.pii import redact  # noqa: E402
 from src.ingest.official import human_date  # noqa: E402
 from src.rag.context import HISTORY_TURNS  # noqa: E402
 from src.rag.pipeline import Answer, ask  # noqa: E402
@@ -92,6 +93,9 @@ footer, [data-testid="stDecoration"] { display: none; }
             border:1px solid #BFE9D7; border-radius:999px; padding:2px 10px; text-decoration:none; }
 .fresh { display:block; font-size:12px; color:#6B7280; margin-top:6px; }
 
+/* Keep the page fully visible while Streamlit re-runs (no grey "stale" fade). */
+[data-stale="true"], .stale-element, [data-testid="stAppViewBlockContainer"] .stale-element {
+    opacity: 1 !important; transition: none !important; }
 .stButton > button { border-radius:999px; border:1px solid #D1D5DB; font-size:13px;
                      text-align:left; justify-content:flex-start; }
 .stButton > button:hover { border-color:#0E9F6E; color:#0E9F6E; }
@@ -138,6 +142,11 @@ def _ask_later(question: str, scheme: str | None = None) -> None:
     st.session_state.pending = (question, scheme)
 
 
+def _clear_chat() -> None:
+    st.session_state.history = []
+    st.session_state.pop("pii_block", None)
+
+
 def render_most_asked() -> None:
     """Most asked questions as tappable chips (two columns)."""
     cols = st.columns(2)
@@ -147,6 +156,7 @@ def render_most_asked() -> None:
                       use_container_width=True, help=f"Ask: {question}")
 
 
+@st.fragment
 def render_feedback(index: int) -> None:
     """👍 / 👎 with an optional reason; kept in this session only (Addendum A3)."""
     rating = st.feedback("thumbs", key=f"fb-{index}")
@@ -225,36 +235,19 @@ def main() -> None:
 
     history: list[tuple[str, Answer]] = st.session_state.setdefault("history", [])
 
-    # The input is pinned to the bottom wherever it is called, so the question is
-    # handled first and the page is then drawn from the updated history.
+    # The input is pinned to the bottom wherever it is called.
     typed = st.chat_input(INPUT_HINT)
     pending = st.session_state.pop("pending", None)
     question, scheme = (typed, None) if typed else (pending or (None, None))
-    if question:
-        # Last HISTORY_TURNS exchanges (redacted questions + answer texts) as context
-        # for follow-ups; session memory only.
-        turns = [(q, a.payload["text"]) for q, a in history][-HISTORY_TURNS:]
-        with st.spinner("Looking it up…"):
-            answer = ask(question, turns, selected_scheme=scheme)
-        if answer.payload["refusal_reason"] == "pii":
-            # Blocked: not shown as a chat message and not kept in history.
-            st.session_state.pii_block = answer
-        else:
-            st.session_state.pop("pii_block", None)
-            # Store only the redacted question; the raw input is dropped here.
-            history.append((answer.redacted_query, answer))
 
     # --- Most asked questions: prominent on an empty chat, then tucked away ------
-    if not history:
+    if not history and not question:
         st.markdown('<div class="asked-title">Most asked questions</div>', unsafe_allow_html=True)
         render_most_asked()
     else:
         with st.expander("Most asked questions"):
             render_most_asked()
-        if st.button("Clear chat", key="clear-chat"):
-            history.clear()
-            st.session_state.pop("pii_block", None)
-            st.rerun()
+        st.button("Clear chat", key="clear-chat", on_click=_clear_chat)
 
     # --- Chat ----------------------------------------------------------------------
     for i, (asked, answer) in enumerate(history):
@@ -262,6 +255,25 @@ def main() -> None:
             st.write(asked)
         with st.chat_message("assistant"):
             render_answer(answer, i, asked)
+
+    if question:
+        shown, pii_types = redact(question)
+        if pii_types:
+            # Blocked: never shown as a chat message, sent anywhere or kept in history.
+            st.session_state.pii_block = ask(question)
+        else:
+            st.session_state.pop("pii_block", None)
+            # The question appears at once; the answer bubble shows "Looking it up…"
+            # until the reply is ready. Last HISTORY_TURNS exchanges (redacted
+            # questions + answer texts) are the context for follow-ups.
+            turns = [(q, a.payload["text"]) for q, a in history][-HISTORY_TURNS:]
+            with st.chat_message("user"):
+                st.write(shown)
+            with st.chat_message("assistant"):
+                with st.spinner("Looking it up…"):
+                    answer = ask(question, turns, selected_scheme=scheme)
+                history.append((answer.redacted_query, answer))
+                render_answer(answer, len(history) - 1, answer.redacted_query)
 
     blocked = st.session_state.get("pii_block")
     if blocked:
